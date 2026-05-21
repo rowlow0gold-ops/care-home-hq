@@ -12,7 +12,7 @@ import {
   Heart,
   Sun,
   Moon,
-} from "lucide-vue-next";
+} from "@lucide/vue";
 
 const { me, logout } = useAuth();
 const { isDark, toggle } = useDarkMode();

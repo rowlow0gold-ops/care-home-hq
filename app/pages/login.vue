@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Heart, LogIn } from "lucide-vue-next";
+import { Heart, LogIn } from "@lucide/vue";
 
 definePageMeta({ layout: "auth" });
 

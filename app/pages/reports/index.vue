@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Play, CheckCircle2, AlertCircle, Loader2 } from "lucide-vue-next";
+import { Play, CheckCircle2, AlertCircle, Loader2 } from "@lucide/vue";
 
 useHead({ title: "보고서 · 케어닥 HQ" });
 

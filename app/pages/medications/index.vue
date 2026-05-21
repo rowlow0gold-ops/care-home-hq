@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Pill } from "lucide-vue-next";
+import { Pill } from "@lucide/vue";
 
 useHead({ title: "투약 · 케어닥 HQ" });
 

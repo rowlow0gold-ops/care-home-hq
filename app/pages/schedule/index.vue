@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Sun, Moon, Sunrise } from "lucide-vue-next";
+import { Sun, Moon, Sunrise } from "@lucide/vue";
 
 useHead({ title: "근무 일정 · 케어닥 HQ" });
 

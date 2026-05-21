@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Home, AlertTriangle } from "lucide-vue-next";
+import { Home, AlertTriangle } from "@lucide/vue";
 
 interface NuxtError {
   statusCode: number;

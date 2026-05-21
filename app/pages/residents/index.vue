@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Plus } from "lucide-vue-next";
+import { Search, Plus } from "@lucide/vue";
 
 useHead({ title: "어르신 · 케어닥 HQ" });
 

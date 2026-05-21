@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Tablet, Copy, RefreshCw } from "lucide-vue-next";
+import { Tablet, Copy, RefreshCw } from "@lucide/vue";
 
 useHead({ title: "설정 · 케어닥 HQ" });
 

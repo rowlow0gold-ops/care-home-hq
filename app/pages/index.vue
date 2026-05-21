@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users, AlertCircle, ClipboardList, UserCheck, TrendingUp, MapPin } from "lucide-vue-next";
+import { Users, AlertCircle, ClipboardList, UserCheck, TrendingUp, MapPin } from "@lucide/vue";
 
 useHead({ title: "대시보드 · 케어닥 HQ" });
 

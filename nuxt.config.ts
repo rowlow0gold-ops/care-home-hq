@@ -12,17 +12,11 @@ export default defineNuxtConfig({
     "@pinia/nuxt",
     "@vueuse/nuxt",
     "@nuxt/icon",
-    "shadcn-nuxt",
     "@nuxtjs/i18n",
     "@nuxt/eslint",
   ],
 
   css: ["~/assets/css/main.css"],
-
-  shadcn: {
-    prefix: "",
-    componentDir: "./app/components/ui",
-  },
 
   i18n: {
     locales: [

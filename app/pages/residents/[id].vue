@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, AlertTriangle, Plus } from "lucide-vue-next";
+import { ArrowLeft, AlertTriangle, Plus } from "@lucide/vue";
 import { Line as LineChart } from "vue-chartjs";
 import {
   Chart as ChartJS,

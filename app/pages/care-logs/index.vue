@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, ClipboardList } from "lucide-vue-next";
+import { AlertTriangle, ClipboardList } from "@lucide/vue";
 
 useHead({ title: "케어 기록 · 케어닥 HQ" });
 
