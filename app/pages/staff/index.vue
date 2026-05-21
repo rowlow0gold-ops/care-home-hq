@@ -579,43 +579,39 @@ function fmtDate(iso: string) {
     <!-- ================================================================ -->
     <!-- TAB: 휴가 (read-only)                                             -->
     <!-- ================================================================ -->
-    <div v-else>
-      <p class="text-sm text-muted-foreground mb-4">
-        직원이 데스크톱 앱에서 신청한 휴가 현황. 신청 / 승인 / 삭제는 데스크톱 앱에서 처리합니다.
-      </p>
-
-      <div class="mb-4 flex flex-wrap items-center gap-3">
-        <div class="flex gap-1 border-b -mb-px">
-          <button
-            v-for="s in ['pending', 'approved', 'rejected', '']"
-            :key="s || 'all'"
-            class="px-4 py-2 text-sm border-b-2 transition-colors"
-            :class="leaveStatus === s
-              ? 'border-primary text-primary font-medium'
-              : 'border-transparent text-muted-foreground hover:text-foreground'"
-            @click="leaveStatus = s"
+    <div v-else class="rounded-xl border bg-card overflow-hidden">
+      <div class="px-6 py-4 border-b flex flex-wrap items-center gap-3">
+        <div class="relative flex-1 min-w-[200px] max-w-sm">
+          <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <input
+            v-model="leaveQ"
+            placeholder="이름 / 사유 검색"
+            class="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
           >
-            {{ s === "" ? "전체" : statusKo[s as LeaveRequest['status']] }}
-          </button>
         </div>
         <select
-          v-model="leaveBranch"
-          class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          v-model="leaveStatus"
+          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
-          <option value="">전체 지점</option>
+          <option value="pending">승인 대기</option>
+          <option value="approved">승인됨</option>
+          <option value="rejected">반려됨</option>
+          <option value="">전체 상태</option>
+        </select>
+        <select
+          v-model="leaveBranch"
+          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+        >
+          <option value="">전체 (본사 + 지점)</option>
           <option value="__hq__">본사만</option>
           <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
         </select>
-        <input
-          v-model="leaveQ"
-          placeholder="이름 / 사유 검색"
-          class="h-9 px-3 rounded-lg border border-input bg-background text-sm w-48 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-        >
-        <div class="ml-auto text-xs text-muted-foreground tabular-nums">{{ leaveFiltered.length }}건</div>
+        <div class="ml-auto text-xs text-muted-foreground tabular-nums">
+          {{ leaveFiltered.length }} / {{ (leaveRows ?? []).length }}건
+        </div>
       </div>
 
-      <div class="rounded-xl border bg-card overflow-hidden">
-        <table class="w-full text-sm">
+      <table class="w-full text-sm">
           <thead>
             <tr class="text-left text-xs text-muted-foreground bg-muted/30">
               <th class="py-3 px-6 font-medium">신청자</th>
@@ -664,44 +660,43 @@ function fmtDate(iso: string) {
           </tbody>
         </table>
 
-        <!-- Pagination -->
-        <div
-          v-if="leaveFiltered.length > 0"
-          class="px-6 py-3 border-t flex flex-wrap items-center gap-3 text-xs"
-        >
-          <div class="text-muted-foreground tabular-nums">
-            {{ leavePageStart }}–{{ leavePageEnd }} / 총 {{ leaveFiltered.length }}건
-          </div>
-          <div class="ml-auto flex items-center gap-2">
-            <label class="text-muted-foreground">페이지당</label>
-            <select
-              v-model.number="leavePageSize"
-              class="h-8 px-2 rounded-md border border-input bg-background text-xs"
-            >
-              <option v-for="n in pageSizeOptions" :key="n" :value="n">{{ n }}</option>
-            </select>
-          </div>
-          <div class="flex items-center gap-1">
-            <button
-              class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
-              :disabled="leavePage <= 1"
-              @click="leavePage = leavePage - 1"
-              title="이전"
-            >
-              <ChevronLeft class="h-4 w-4" />
-            </button>
-            <span class="px-2 tabular-nums">
-              <strong>{{ leavePage }}</strong> / {{ leaveTotalPages }}
-            </span>
-            <button
-              class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
-              :disabled="leavePage >= leaveTotalPages"
-              @click="leavePage = leavePage + 1"
-              title="다음"
-            >
-              <ChevronRight class="h-4 w-4" />
-            </button>
-          </div>
+      <!-- Pagination -->
+      <div
+        v-if="leaveFiltered.length > 0"
+        class="px-6 py-3 border-t flex flex-wrap items-center gap-3 text-xs"
+      >
+        <div class="text-muted-foreground tabular-nums">
+          {{ leavePageStart }}–{{ leavePageEnd }} / 총 {{ leaveFiltered.length }}건
+        </div>
+        <div class="ml-auto flex items-center gap-2">
+          <label class="text-muted-foreground">페이지당</label>
+          <select
+            v-model.number="leavePageSize"
+            class="h-8 px-2 rounded-md border border-input bg-background text-xs"
+          >
+            <option v-for="n in pageSizeOptions" :key="n" :value="n">{{ n }}</option>
+          </select>
+        </div>
+        <div class="flex items-center gap-1">
+          <button
+            class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
+            :disabled="leavePage <= 1"
+            @click="leavePage = leavePage - 1"
+            title="이전"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </button>
+          <span class="px-2 tabular-nums">
+            <strong>{{ leavePage }}</strong> / {{ leaveTotalPages }}
+          </span>
+          <button
+            class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
+            :disabled="leavePage >= leaveTotalPages"
+            @click="leavePage = leavePage + 1"
+            title="다음"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </button>
         </div>
       </div>
     </div>
