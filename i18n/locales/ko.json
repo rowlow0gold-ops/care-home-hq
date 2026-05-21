@@ -1,0 +1,16 @@
+{
+  "app.name": "케어닥",
+  "app.subtitle": "요양원 본부 통합관리",
+  "nav.dashboard": "대시보드",
+  "nav.residents": "어르신",
+  "nav.care_logs": "케어 기록",
+  "nav.medications": "투약",
+  "nav.schedule": "근무 일정",
+  "nav.staff": "직원 관리",
+  "nav.reports": "보고서",
+  "nav.settings": "설정",
+  "common.loading": "불러오는 중…",
+  "common.save": "저장",
+  "common.cancel": "취소",
+  "common.search": "검색"
+}

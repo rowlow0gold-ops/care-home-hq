@@ -1,0 +1,16 @@
+{
+  "app.name": "Care Doc",
+  "app.subtitle": "HQ for senior care franchises",
+  "nav.dashboard": "Dashboard",
+  "nav.residents": "Residents",
+  "nav.care_logs": "Care Logs",
+  "nav.medications": "Medications",
+  "nav.schedule": "Schedule",
+  "nav.staff": "Staff",
+  "nav.reports": "Reports",
+  "nav.settings": "Settings",
+  "common.loading": "Loading…",
+  "common.save": "Save",
+  "common.cancel": "Cancel",
+  "common.search": "Search"
+}

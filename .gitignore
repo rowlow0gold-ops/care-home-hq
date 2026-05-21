@@ -1,0 +1,21 @@
+# Nuxt + Vite + Node
+.nuxt
+.output
+.data
+.cache
+dist
+node_modules
+
+# Editor / OS
+.idea
+.vscode
+.DS_Store
+*.log
+
+# Env (server-side secrets only)
+.env
+.env.local
+.env.*.local
+
+# Cloudflare Pages
+.wrangler
