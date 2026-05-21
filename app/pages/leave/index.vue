@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CalendarOff, Check, X, Plus, Loader2 } from "@lucide/vue";
+import { CalendarOff, Check, X } from "@lucide/vue";
 
 useHead({ title: "휴가 · 케어닥 HQ" });
 
@@ -67,17 +67,6 @@ const { data: balance } = await useAsyncData("leave-balance", () =>
   api.get<Balance>("/v1/leave-requests/balance"),
 );
 
-// New request form
-const showNewForm = ref(false);
-const newLeave = ref({
-  leave_type: "annual",
-  start_date: new Date().toISOString().slice(0, 10),
-  end_date: new Date().toISOString().slice(0, 10),
-  days: 1,
-  reason: "",
-});
-const submitting = ref(false);
-
 const leaveTypeKo: Record<string, string> = {
   annual: "연차",
   monthly: "월차",
@@ -103,28 +92,6 @@ const isManager = computed(() =>
   ["branch_manager", "hq", "super_admin"].includes(me.value?.role ?? ""),
 );
 
-async function submitNew() {
-  if (submitting.value) return;
-  submitting.value = true;
-  try {
-    await api.post("/v1/leave-requests", newLeave.value);
-    toast.success("휴가 신청 완료", "승인을 기다려 주세요");
-    showNewForm.value = false;
-    newLeave.value = {
-      leave_type: "annual",
-      start_date: new Date().toISOString().slice(0, 10),
-      end_date: new Date().toISOString().slice(0, 10),
-      days: 1,
-      reason: "",
-    };
-    await refresh();
-  } catch (err: any) {
-    toast.error(err?.statusMessage ?? "신청 실패");
-  } finally {
-    submitting.value = false;
-  }
-}
-
 async function decide(req: LeaveRequest, status: "approved" | "rejected") {
   try {
     await api.patch(`/v1/leave-requests/${req.id}/decide`, { status });
@@ -142,18 +109,11 @@ function fmtDate(iso: string) {
 
 <template>
   <div class="px-8 py-6 max-w-7xl mx-auto">
-    <header class="mb-6 flex items-start justify-between gap-4">
-      <div>
-        <h1 class="text-3xl font-bold tracking-tight">휴가 관리</h1>
-        <p class="text-sm text-muted-foreground mt-1">연차 · 병가 · 경조사 신청 + 승인</p>
-      </div>
-      <button
-        class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-medium flex items-center gap-2 hover:bg-primary/90 shadow-md shadow-primary/20"
-        @click="showNewForm = !showNewForm"
-      >
-        <Plus class="h-4 w-4" />
-        {{ showNewForm ? "닫기" : "휴가 신청" }}
-      </button>
+    <header class="mb-6">
+      <h1 class="text-3xl font-bold tracking-tight">휴가 관리</h1>
+      <p class="text-sm text-muted-foreground mt-1">
+        연차 · 병가 · 경조사 검토 및 승인. 신청은 데스크톱 앱에서 받습니다.
+      </p>
     </header>
 
     <!-- Balance card (caregiver/nurse only — managers see branch-wide instead) -->
@@ -175,64 +135,6 @@ function fmtDate(iso: string) {
         <div class="text-2xl font-bold mt-1">{{ balance.sick_used.toFixed(1) }}일</div>
       </div>
     </div>
-
-    <!-- New request form -->
-    <Transition
-      enter-active-class="transition duration-200"
-      enter-from-class="opacity-0 -translate-y-2"
-      leave-active-class="transition duration-150"
-      leave-to-class="opacity-0"
-    >
-      <div v-if="showNewForm" class="mb-6 rounded-xl border bg-card p-5">
-        <h3 class="font-semibold mb-4">새 휴가 신청</h3>
-        <div class="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div class="space-y-1">
-            <Label for="lt">종류</Label>
-            <select
-              id="lt"
-              v-model="newLeave.leave_type"
-              class="h-10 w-full px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-            >
-              <option value="annual">연차</option>
-              <option value="sick">병가</option>
-              <option value="personal">경조사</option>
-              <option value="public">공가</option>
-              <option value="maternity">출산휴가</option>
-            </select>
-          </div>
-          <div class="space-y-1">
-            <Label for="sd">시작일</Label>
-            <Input id="sd" v-model="newLeave.start_date" type="date" />
-          </div>
-          <div class="space-y-1">
-            <Label for="ed">종료일</Label>
-            <Input id="ed" v-model="newLeave.end_date" type="date" />
-          </div>
-          <div class="space-y-1">
-            <Label for="d">일수 (반차=0.5)</Label>
-            <Input id="d" v-model.number="newLeave.days" type="number" step="0.5" />
-          </div>
-        </div>
-        <div class="mt-3 space-y-1">
-          <Label for="rsn">사유 (선택)</Label>
-          <textarea
-            id="rsn"
-            v-model="newLeave.reason"
-            rows="2"
-            class="w-full px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-            placeholder="가족 행사, 본인 진료 등"
-          />
-        </div>
-        <div class="mt-4 flex justify-end gap-2">
-          <Button variant="outline" @click="showNewForm = false">취소</Button>
-          <Button :disabled="submitting" @click="submitNew">
-            <Loader2 v-if="submitting" class="h-4 w-4 animate-spin" />
-            <Plus v-else class="h-4 w-4" />
-            신청
-          </Button>
-        </div>
-      </div>
-    </Transition>
 
     <!-- Filters: status tabs + branch + search -->
     <div class="mb-4 flex flex-wrap items-center gap-3">

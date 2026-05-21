@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Building2 } from "@lucide/vue";
+import { Search, Building2, ChevronLeft, ChevronRight } from "@lucide/vue";
 
 useHead({ title: "직원 관리 · 케어닥 HQ" });
 
@@ -46,6 +46,35 @@ const filtered = computed(() => {
   }
   return rows;
 });
+
+// --- pagination -----------------------------------------------------------
+const pageSize = ref(25);
+const page = ref(1);
+const pageSizeOptions = [10, 25, 50, 100];
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(filtered.value.length / pageSize.value)),
+);
+
+// Reset to page 1 whenever filters or page size change
+watch([debouncedQ, branchFilter, empFilter, pageSize], () => {
+  page.value = 1;
+});
+// Clamp page if filter shrinks the list below current page
+watch(totalPages, (n) => {
+  if (page.value > n) page.value = n;
+});
+
+const paged = computed(() => {
+  const start = (page.value - 1) * pageSize.value;
+  return filtered.value.slice(start, start + pageSize.value);
+});
+const pageStart = computed(() =>
+  filtered.value.length === 0 ? 0 : (page.value - 1) * pageSize.value + 1,
+);
+const pageEnd = computed(() =>
+  Math.min(page.value * pageSize.value, filtered.value.length),
+);
 
 const tone: Record<string, string> = {
   regular: "bg-primary/10 text-primary",
@@ -114,7 +143,7 @@ const tone: Record<string, string> = {
         </thead>
         <tbody>
           <tr
-            v-for="p in filtered"
+            v-for="p in paged"
             :key="p.id"
             class="border-t hover:bg-muted/40 cursor-pointer transition-colors"
             @click="navigateTo(`/staff/${p.id}`)"
@@ -143,6 +172,48 @@ const tone: Record<string, string> = {
           </tr>
         </tbody>
       </table>
+
+      <!-- Pagination controls -->
+      <div
+        v-if="filtered.length > 0"
+        class="px-6 py-3 border-t flex flex-wrap items-center gap-3 text-xs"
+      >
+        <div class="text-muted-foreground tabular-nums">
+          {{ pageStart }}–{{ pageEnd }} / 총 {{ filtered.length }}명
+        </div>
+
+        <div class="ml-auto flex items-center gap-2">
+          <label class="text-muted-foreground">페이지당</label>
+          <select
+            v-model.number="pageSize"
+            class="h-8 px-2 rounded-md border border-input bg-background text-xs"
+          >
+            <option v-for="n in pageSizeOptions" :key="n" :value="n">{{ n }}</option>
+          </select>
+        </div>
+
+        <div class="flex items-center gap-1">
+          <button
+            class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
+            :disabled="page <= 1"
+            @click="page = page - 1"
+            title="이전"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </button>
+          <span class="px-2 tabular-nums">
+            <strong>{{ page }}</strong> / {{ totalPages }}
+          </span>
+          <button
+            class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
+            :disabled="page >= totalPages"
+            @click="page = page + 1"
+            title="다음"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

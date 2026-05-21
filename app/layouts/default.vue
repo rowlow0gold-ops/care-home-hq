@@ -43,7 +43,7 @@ const visibleNav = computed(() => {
 const roleLabel: Record<string, string> = {
   caregiver: "요양보호사",
   nurse: "간호사",
-  branch_manager: "지점장",
+  branch_manager: "센터장",
   hq: "본부",
   super_admin: "시스템 관리자",
 };

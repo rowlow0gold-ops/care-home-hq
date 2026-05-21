@@ -59,8 +59,27 @@ interface Branch {
 }
 
 const api = useApi();
-const date = ref(new Date().toISOString().slice(0, 10));
-const branchFilter = ref<string>("");
+const { me } = useAuth();
+
+// Use LOCAL date (KST) — toISOString() returns UTC which is off by a day
+// during KST morning hours (UTC = KST - 9h).
+function todayLocal() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${dd}`;
+}
+const date = ref(todayLocal());
+
+// Default branch filter:
+// - 센터장 (branch_manager) with a branch_id → auto-filter to their own branch
+// - 본사/슈퍼관리자 → 전체 지점 (empty string)
+const branchFilter = ref<string>(
+  me.value?.role === "branch_manager" && me.value?.branch_id
+    ? me.value.branch_id
+    : "",
+);
 
 const { data: dashboard } = await useAsyncData("schedule-dash", () =>
   api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
@@ -101,6 +120,16 @@ function branchName(id: string) {
   return dashboard.value?.branches.find((b) => b.id === id)?.name ?? "—";
 }
 
+// Human-readable date for the header — uses the picked date (not "today")
+const headerDate = computed(() => {
+  // date.value is YYYY-MM-DD; parse without TZ shift
+  const [y, m, d] = date.value.split("-").map(Number);
+  const weekday = ["일", "월", "화", "수", "목", "금", "토"][
+    new Date(y, m - 1, d).getDay()
+  ];
+  return `${y}년 ${m}월 ${d}일 (${weekday})`;
+});
+
 // Coverage summary
 const summary = computed(() => {
   const all = rows.value ?? [];
@@ -119,7 +148,10 @@ const summary = computed(() => {
     <header class="mb-6 flex items-start justify-between gap-4 flex-wrap">
       <div>
         <h1 class="text-3xl font-bold tracking-tight">근무 일정</h1>
-        <p class="text-sm text-muted-foreground mt-1">24시간 3교대 · 주간 06–14 / 저녁 14–22 / 야간 22–06</p>
+        <p class="text-sm text-muted-foreground mt-1">
+          <span class="font-medium text-foreground">{{ headerDate }}</span>
+          · 24시간 3교대 · 주간 06–14 / 저녁 14–22 / 야간 22–06
+        </p>
       </div>
       <div class="flex items-center gap-2">
         <Input v-model="date" type="date" class="w-40" />
