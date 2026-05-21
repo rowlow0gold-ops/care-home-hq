@@ -32,9 +32,56 @@ interface DashboardSummary {
 }
 
 const api = useApi();
-const { data, pending, error } = await useAsyncData("dashboard", () =>
-  api.get<DashboardSummary>("/v1/dashboard/summary"),
+
+interface BillingRun {
+  id: string;
+  branch_id: string;
+  year_month: string;
+  status: string;
+  total_amount: number | null;
+}
+
+const [{ data, pending, error }, { data: runs }] = await Promise.all([
+  useAsyncData("dashboard", () => api.get<DashboardSummary>("/v1/dashboard/summary")),
+  useAsyncData("billing-runs", () => api.get<BillingRun[]>("/v1/billing/runs")),
+]);
+
+// ----- 청구 매출 filters ---------------------------------------------------
+const completedRuns = computed(() =>
+  (runs.value ?? []).filter((r) => r.status === "completed"),
 );
+
+// All months that have at least one completed run, newest first
+const availableMonths = computed(() => {
+  const s = new Set<string>();
+  for (const r of completedRuns.value) s.add(r.year_month);
+  return Array.from(s).sort().reverse();
+});
+
+const billingMonth = ref<string>("");   // "" = 전체 기간
+const billingBranch = ref<string>("");  // "" = 전체 지점
+
+// Default to latest month once data loads
+watch(availableMonths, (months) => {
+  if (!billingMonth.value && months.length > 0) billingMonth.value = months[0];
+}, { immediate: true });
+
+const filteredBilling = computed(() => {
+  let rows = completedRuns.value;
+  if (billingMonth.value) rows = rows.filter((r) => r.year_month === billingMonth.value);
+  if (billingBranch.value) rows = rows.filter((r) => r.branch_id === billingBranch.value);
+  return rows;
+});
+
+const billingTotal = computed(() =>
+  filteredBilling.value.reduce((acc, r) => acc + (r.total_amount ?? 0), 0),
+);
+const billingCount = computed(() => filteredBilling.value.length);
+
+const billingPeriodLabel = computed(() => {
+  if (!billingMonth.value) return "전체 기간";
+  return billingMonth.value;
+});
 
 function fmtKRW(n: number) {
   if (n >= 100_000_000) return `₩${(n / 100_000_000).toFixed(1)}억`;
@@ -117,27 +164,49 @@ function occupancyTone(pct: number) {
     <div class="rounded-2xl border bg-gradient-to-br from-primary/15 via-primary/5 to-card p-6 mb-6 relative overflow-hidden">
       <div class="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary/10 blur-2xl" />
       <div class="relative flex items-start justify-between gap-4 flex-wrap">
-        <div>
+        <div class="flex-1 min-w-[260px]">
           <div class="flex items-center gap-2 text-sm text-muted-foreground">
             <Wallet class="h-4 w-4 text-primary" />
-            <span>최근 청구 매출 합계
-              <template v-if="data?.money?.last_month">· {{ data.money.last_month }}</template>
-            </span>
+            <span>청구 매출 합계 · <strong class="text-foreground">{{ billingPeriodLabel }}</strong></span>
           </div>
           <div v-if="pending && !data" class="mt-2">
             <Skeleton w="14rem" h="2.5rem" />
           </div>
           <div v-else class="mt-2 text-4xl font-bold tabular-nums text-foreground">
-            ₩{{ (data?.money?.last_month_total_krw ?? 0).toLocaleString("ko-KR") }}
+            ₩{{ billingTotal.toLocaleString("ko-KR") }}
           </div>
           <div class="text-xs text-muted-foreground mt-1">
-            완료된 청구 {{ data?.money?.completed_runs ?? 0 }}건 · 가장 최근 청구 월 기준
+            <span v-if="billingBranch">
+              {{ data?.branches?.find((b) => b.id === billingBranch)?.name ?? "—" }} ·
+            </span>
+            완료된 청구 {{ billingCount }}건
           </div>
         </div>
-        <NuxtLink to="/reports" class="text-sm px-4 h-10 rounded-lg bg-primary text-primary-foreground flex items-center gap-2 hover:bg-primary/90 shadow-md shadow-primary/20">
-          청구서 관리
-          <TrendingUp class="h-4 w-4" />
-        </NuxtLink>
+
+        <!-- Filters -->
+        <div class="flex items-center gap-2 flex-wrap">
+          <select
+            v-model="billingMonth"
+            class="h-10 px-3 rounded-lg border border-input bg-background/80 backdrop-blur text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          >
+            <option value="">전체 기간</option>
+            <option v-for="m in availableMonths" :key="m" :value="m">{{ m }}</option>
+          </select>
+          <select
+            v-model="billingBranch"
+            class="h-10 px-3 rounded-lg border border-input bg-background/80 backdrop-blur text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          >
+            <option value="">전체 지점</option>
+            <option v-for="b in data?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
+          </select>
+          <NuxtLink
+            to="/reports"
+            class="text-sm px-4 h-10 rounded-lg bg-primary text-primary-foreground flex items-center gap-2 hover:bg-primary/90 shadow-md shadow-primary/20"
+          >
+            청구서 관리
+            <TrendingUp class="h-4 w-4" />
+          </NuxtLink>
+        </div>
       </div>
     </div>
 
