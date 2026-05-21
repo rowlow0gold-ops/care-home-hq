@@ -91,7 +91,6 @@ const tone: Record<string, string> = {
           <option value="">전체 고용형태</option>
           <option value="regular">정규직</option>
           <option value="contract">계약직</option>
-          <option value="short_contract">단기계약직</option>
           <option value="part_time">시간제</option>
           <option value="arbeit">아르바이트</option>
           <option value="consultant">위촉직</option>
