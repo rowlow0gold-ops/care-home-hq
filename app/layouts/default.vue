@@ -2,8 +2,6 @@
 import {
   LayoutDashboard,
   Users,
-  ClipboardList,
-  Pill,
   Calendar,
   FileBarChart,
   UsersRound,
@@ -17,11 +15,10 @@ import {
 const { me, logout } = useAuth();
 const route = useRoute();
 
+// 케어 기록 + 투약 are now tabs inside 어르신 상세 페이지 (no top-level item)
 const nav = computed(() => [
   { to: "/", label: "대시보드", icon: LayoutDashboard, minRole: 1 },
   { to: "/residents", label: "어르신", icon: Users, minRole: 1 },
-  { to: "/care-logs", label: "케어 기록", icon: ClipboardList, minRole: 1 },
-  { to: "/medications", label: "투약", icon: Pill, minRole: 2 },
   { to: "/schedule", label: "근무 일정", icon: Calendar, minRole: 3 },
   { to: "/leave", label: "휴가", icon: CalendarOff, minRole: 1 },
   { to: "/staff", label: "직원 관리", icon: UsersRound, minRole: 3 },
@@ -128,8 +125,11 @@ const initials = computed(() => {
       </div>
     </aside>
 
-    <main class="flex-1 min-w-0 overflow-x-hidden">
-      <slot />
+    <main class="flex-1 min-w-0 overflow-x-hidden flex flex-col">
+      <div class="flex-1">
+        <slot />
+      </div>
+      <Footer />
     </main>
   </div>
 </template>

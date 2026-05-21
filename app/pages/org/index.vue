@@ -79,12 +79,26 @@ const popoverPos = ref({ x: 0, y: 0 });
 function onHover(p: OrgPerson, e: MouseEvent) {
   hoveredPerson.value = p;
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  popoverPos.value = { x: rect.right + 8, y: rect.top };
+  // Estimated popover dimensions
+  const W = 280, H = 220;
+  const vw = window.innerWidth, vh = window.innerHeight;
+  // Default: right of the element
+  let x = rect.right + 8;
+  let y = rect.top;
+  // Flip horizontally if it would overflow right edge
+  if (x + W > vw - 8) x = Math.max(8, rect.left - W - 8);
+  // Flip vertically if it would overflow bottom edge
+  if (y + H > vh - 8) y = Math.max(8, rect.bottom - H);
+  popoverPos.value = { x, y };
 }
 function onLeave() { hoveredPerson.value = null; }
 
 function openBranch(branchId: string) {
   router.push(`/branches/${branchId}`);
+}
+function openPerson(p: OrgPerson, e: MouseEvent) {
+  e.stopPropagation();
+  router.push(`/staff/${p.id}`);
 }
 </script>
 
@@ -121,17 +135,18 @@ function openBranch(branchId: string) {
             </div>
           </div>
           <div class="flex flex-wrap gap-1.5">
-            <div
+            <button
               v-for="p in hqPeople"
               :key="p.id"
-              class="flex items-center gap-1.5 px-2 py-1 rounded-md border bg-card text-xs cursor-help hover:border-primary/40 transition-colors"
+              class="flex items-center gap-1.5 px-2 py-1 rounded-md border bg-card text-xs hover:border-primary/60 hover:bg-primary/5 transition-colors"
               @mouseenter="onHover(p, $event)"
               @mouseleave="onLeave"
+              @click="openPerson(p, $event)"
             >
               <component :is="positionIcon[p.position] ?? Briefcase" class="h-3 w-3 text-muted-foreground" />
               <span class="font-medium">{{ p.full_name }}</span>
               <span class="text-muted-foreground">· {{ p.position_ko }}</span>
-            </div>
+            </button>
           </div>
         </div>
 
@@ -172,17 +187,17 @@ function openBranch(branchId: string) {
                     {{ b.label }} ({{ b.people.length }})
                   </div>
                   <div class="flex flex-wrap gap-1">
-                    <div
+                    <button
                       v-for="p in b.people"
                       :key="p.id"
-                      class="px-1.5 py-0.5 rounded text-[11px] cursor-help transition-colors"
+                      class="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:ring-1 hover:ring-primary/40"
                       :class="employmentTone[p.employment_type] ?? 'bg-muted'"
                       @mouseenter.stop="onHover(p, $event)"
                       @mouseleave="onLeave"
-                      @click.stop
+                      @click="openPerson(p, $event)"
                     >
                       {{ p.full_name }}
-                    </div>
+                    </button>
                   </div>
                 </div>
               </div>

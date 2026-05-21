@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Building2, Users, UsersRound, MapPin, Phone } from "@lucide/vue";
+import { ArrowLeft, Building2, Users, UsersRound, MapPin, Phone, ImageIcon, Camera } from "@lucide/vue";
 
 const route = useRoute();
 const id = route.params.id as string;
@@ -8,6 +8,9 @@ const api = useApi();
 interface Branch {
   id: string;
   name: string;
+  address: string | null;
+  phone: string | null;
+  capacity: number;
   resident_count: number;
   occupancy_pct: number;
   incidents_7d: number;
@@ -72,17 +75,45 @@ const empCounts = computed(() => {
     </NuxtLink>
 
     <template v-if="branch">
-      <header class="mb-6">
+      <header class="mb-6 flex items-start justify-between gap-4 flex-wrap">
         <div class="flex items-center gap-3">
           <div class="h-12 w-12 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
             <Building2 class="h-6 w-6" />
           </div>
           <div>
             <h1 class="text-3xl font-bold tracking-tight">{{ branch.name }}</h1>
-            <p class="text-sm text-muted-foreground mt-0.5">지점 운영 현황 + 직원 구성</p>
+            <div class="flex items-center gap-3 mt-1 text-sm text-muted-foreground flex-wrap">
+              <span v-if="branch.address" class="inline-flex items-center gap-1">
+                <MapPin class="h-3.5 w-3.5" />
+                {{ branch.address }}
+              </span>
+              <span v-if="branch.phone" class="inline-flex items-center gap-1">
+                <Phone class="h-3.5 w-3.5" />
+                {{ branch.phone }}
+              </span>
+              <span>· 정원 {{ branch.capacity }}명</span>
+            </div>
           </div>
         </div>
       </header>
+
+      <!-- Facility section — visual identity of the center -->
+      <div class="rounded-xl border bg-card overflow-hidden mb-6">
+        <div class="px-5 py-3 border-b flex items-center gap-2">
+          <ImageIcon class="h-4 w-4 text-primary" />
+          <h2 class="font-semibold">시설 모습</h2>
+          <span class="text-xs text-muted-foreground ml-auto">사진 업로드 (다음 슬라이스)</span>
+        </div>
+        <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 p-4">
+          <div
+            v-for="i in 4"
+            :key="i"
+            class="aspect-video rounded-lg bg-gradient-to-br from-primary/10 via-muted to-card border border-dashed border-border flex items-center justify-center text-muted-foreground"
+          >
+            <Camera class="h-8 w-8 opacity-40" />
+          </div>
+        </div>
+      </div>
 
       <!-- KPIs -->
       <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
