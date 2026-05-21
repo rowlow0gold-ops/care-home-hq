@@ -24,18 +24,18 @@ const branchAccounts = [
   // Wait — the original "bundang@demo.com" was the first bundang manager.
 ];
 
-// Re-derive from the slug list so this stays in sync with the seed script.
+// All 10 branches are Seoul districts. Emails stayed as-is (just identifiers).
 const branches = [
   { slug: "gangnam",      name: "강남센터",      email: "manager@demo.com" },
-  { slug: "bundang",      name: "분당센터",      email: "bundang@demo.com" },
+  { slug: "gangdong",     name: "강동센터",      email: "bundang@demo.com" },
   { slug: "seocho",       name: "서초센터",      email: "manager.seocho@demo.com" },
   { slug: "songpa",       name: "송파센터",      email: "manager.songpa@demo.com" },
   { slug: "mapo",         name: "마포센터",      email: "manager.mapo@demo.com" },
   { slug: "yeongdeungpo", name: "영등포센터",    email: "manager.yeongdeungpo@demo.com" },
   { slug: "jamsil",       name: "잠실센터",      email: "manager.jamsil@demo.com" },
   { slug: "sinchon",      name: "신촌센터",      email: "manager.sinchon@demo.com" },
-  { slug: "ilsan",        name: "일산센터",      email: "manager.ilsan@demo.com" },
-  { slug: "suwon",        name: "수원센터",      email: "manager.suwon@demo.com" },
+  { slug: "nowon",        name: "노원센터",      email: "manager.ilsan@demo.com" },
+  { slug: "gangbuk",      name: "강북센터",      email: "manager.suwon@demo.com" },
 ];
 
 function pick(account: { email: string }) {

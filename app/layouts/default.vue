@@ -10,14 +10,12 @@ import {
   Settings,
   LogOut,
   Heart,
-  Sun,
-  Moon,
   Network,
   CalendarOff,
+  UserCircle,
 } from "@lucide/vue";
 
 const { me, logout } = useAuth();
-const { isDark, toggle } = useDarkMode();
 const route = useRoute();
 
 const nav = computed(() => [
@@ -117,15 +115,13 @@ const initials = computed(() => {
         </div>
 
         <div class="flex items-center gap-1">
-          <button
-            class="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-md text-foreground/70 hover:bg-muted transition-colors"
-            :title="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
-            @click="toggle"
+          <NuxtLink
+            to="/settings"
+            class="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-md text-foreground/70 hover:bg-muted hover:text-primary transition-colors"
           >
-            <Sun v-if="isDark" class="h-3.5 w-3.5" />
-            <Moon v-else class="h-3.5 w-3.5" />
-            {{ isDark ? '라이트' : '다크' }}
-          </button>
+            <UserCircle class="h-3.5 w-3.5" />
+            내 정보
+          </NuxtLink>
           <button
             class="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-md text-foreground/70 hover:bg-muted hover:text-destructive transition-colors"
             @click="logout"
