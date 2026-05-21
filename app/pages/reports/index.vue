@@ -45,7 +45,7 @@ const submitting = ref(false);
 const submitError = ref<string | null>(null);
 
 // Filters for the history list (independent from the trigger form)
-const filterBranch = ref<string>("");
+const filterBranch = ref<string>(useDefaultBranch());
 const filterStatus = ref<string>("");
 const filterYearMonth = ref<string>("");
 

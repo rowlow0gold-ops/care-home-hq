@@ -58,8 +58,8 @@ const availableMonths = computed(() => {
   return Array.from(s).sort().reverse();
 });
 
-const billingMonth = ref<string>("");   // "" = 전체 기간
-const billingBranch = ref<string>("");  // "" = 전체 지점
+const billingMonth = ref<string>("");                       // "" = 전체 기간
+const billingBranch = ref<string>(useDefaultBranch());      // 센터장은 자기 지점
 
 // Default to latest month once data loads
 watch(availableMonths, (months) => {

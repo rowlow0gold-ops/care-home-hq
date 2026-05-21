@@ -18,7 +18,7 @@ interface CareLog {
 const api = useApi();
 const onlyFlagged = ref(false);
 const categoryFilter = ref<string>("");
-const branchFilter = ref<string>("");
+const branchFilter = ref<string>(useDefaultBranch());
 const q = ref("");
 const debouncedQ = refDebounced(q, 250);
 const categories = ["식사", "투약", "배설", "위생", "활동", "이상징후", "기타"];

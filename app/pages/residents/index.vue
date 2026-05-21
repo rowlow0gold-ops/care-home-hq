@@ -21,7 +21,7 @@ interface Branch { id: string; name: string }
 const api = useApi();
 const q = ref("");
 const debouncedQ = refDebounced(q, 300);
-const branchFilter = ref<string>("");
+const branchFilter = ref<string>(useDefaultBranch());
 const gradeFilter = ref<string>("");
 const statusFilter = ref<string>("active");
 const page = ref(1);

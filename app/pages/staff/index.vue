@@ -20,7 +20,6 @@ useHead({ title: "직원 관리 · 케어닥 HQ" });
 const route = useRoute();
 const router = useRouter();
 const api = useApi();
-const { me } = useAuth();
 
 // Tab — synced with ?tab=
 type Tab = "list" | "schedule" | "leave";
@@ -66,7 +65,7 @@ interface Person {
 
 const q = ref("");
 const debouncedQ = refDebounced(q, 250);
-const branchFilter = ref<string>("");
+const branchFilter = ref<string>(useDefaultBranch());
 const empFilter = ref<string>("");
 
 const { data: people, pending, error } = await useAsyncData(
@@ -160,9 +159,7 @@ function todayLocal() {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 }
 const scheduleDate = ref(todayLocal());
-const scheduleBranch = ref<string>(
-  me.value?.role === "branch_manager" && me.value?.branch_id ? me.value.branch_id : "",
-);
+const scheduleBranch = ref<string>(useDefaultBranch());
 
 const { data: shifts, pending: shiftsPending } = await useAsyncData(
   "shifts-today",
@@ -233,7 +230,7 @@ interface LeaveRequest {
 }
 
 const leaveStatus = ref<string>("pending");
-const leaveBranch = ref<string>("");
+const leaveBranch = ref<string>(useDefaultBranch());
 const leaveQ = ref("");
 const debouncedLeaveQ = refDebounced(leaveQ, 250);
 
