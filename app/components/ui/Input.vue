@@ -20,7 +20,10 @@ const emit = defineEmits<{ "update:modelValue": [value: string] }>();
     :disabled="disabled"
     :autocomplete="autocomplete"
     :required="required"
-    class="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+    class="flex h-10 w-full rounded-lg border border-input bg-background px-3 text-sm
+           placeholder:text-muted-foreground/60 transition-all
+           focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15
+           disabled:cursor-not-allowed disabled:opacity-50"
     @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)"
   >
 </template>
