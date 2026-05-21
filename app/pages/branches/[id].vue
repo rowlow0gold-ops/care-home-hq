@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Building2, Users, UsersRound, MapPin, Phone, ImageIcon, Camera, Stethoscope, Heart, AlertTriangle, CheckCircle2 } from "@lucide/vue";
+import { ArrowLeft, Building2, Users, UsersRound, MapPin, Phone, ImageIcon, Camera, Stethoscope, Heart, AlertTriangle, CheckCircle2, ChefHat } from "@lucide/vue";
 
 const route = useRoute();
 const id = route.params.id as string;
@@ -18,8 +18,10 @@ interface Branch {
   services: string[];
   current_caregivers: number;
   current_nurses: number;
+  current_cooks: number;
   required_caregivers: number;
   required_nurses: number;
+  required_cooks: number;
 }
 
 const SERVICE_KO: Record<string, string> = {
@@ -129,10 +131,10 @@ const empCounts = computed(() => {
           <Stethoscope class="h-4 w-4 text-primary" />
           <h2 class="font-semibold">인력 충원 현황</h2>
           <span class="text-xs text-muted-foreground ml-auto">
-            기준: 요양보호사 어르신×2.1 · 간호(조무)사 어르신/25
+            기준: 요양보호사 어르신×2.1 · 간호(조무)사 어르신/25 · 조리원 어르신/25
           </span>
         </div>
-        <div class="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x">
+        <div class="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x">
           <!-- Caregivers -->
           <div class="p-5">
             <div class="flex items-center gap-2 mb-2">
@@ -202,6 +204,43 @@ const empCounts = computed(() => {
                   width:
                     branch.required_nurses > 0
                       ? Math.min(100, (branch.current_nurses / branch.required_nurses) * 100) + '%'
+                      : '100%',
+                }"
+              />
+            </div>
+          </div>
+          <!-- Cooks -->
+          <div class="p-5">
+            <div class="flex items-center gap-2 mb-2">
+              <ChefHat class="h-4 w-4 text-amber-600" />
+              <span class="text-sm font-medium">조리원</span>
+              <span class="ml-auto text-xs text-muted-foreground">
+                필요 {{ branch.required_cooks }}명
+              </span>
+            </div>
+            <div class="flex items-baseline gap-2">
+              <span class="text-3xl font-bold tabular-nums">{{ branch.current_cooks }}</span>
+              <span class="text-sm text-muted-foreground">/ {{ branch.required_cooks }}</span>
+              <span
+                class="ml-auto inline-flex items-center gap-1 text-xs font-medium"
+                :class="branch.current_cooks >= branch.required_cooks ? 'text-emerald-600' : 'text-amber-600'"
+              >
+                <component
+                  :is="branch.current_cooks >= branch.required_cooks ? CheckCircle2 : AlertTriangle"
+                  class="h-3.5 w-3.5"
+                />
+                {{ branch.current_cooks >= branch.required_cooks
+                  ? "충원 완료"
+                  : `${branch.required_cooks - branch.current_cooks}명 부족` }}
+              </span>
+            </div>
+            <div class="h-1.5 bg-muted rounded-full overflow-hidden mt-3">
+              <div
+                class="h-full bg-amber-500 transition-all"
+                :style="{
+                  width:
+                    branch.required_cooks > 0
+                      ? Math.min(100, (branch.current_cooks / branch.required_cooks) * 100) + '%'
                       : '100%',
                 }"
               />

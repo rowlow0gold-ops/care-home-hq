@@ -94,7 +94,6 @@ const tone: Record<string, string> = {
           <option value="short_contract">단기계약직</option>
           <option value="part_time">시간제</option>
           <option value="arbeit">아르바이트</option>
-          <option value="dispatched">파견직</option>
           <option value="consultant">위촉직</option>
         </select>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
