@@ -12,7 +12,6 @@ import {
   Heart,
   Network,
   CalendarOff,
-  UserCircle,
 } from "@lucide/vue";
 
 const { me, logout } = useAuth();
@@ -66,8 +65,8 @@ const initials = computed(() => {
 <template>
   <div class="min-h-screen flex bg-muted/30">
     <aside class="w-64 border-r bg-card flex flex-col">
-      <!-- Brand -->
-      <div class="h-16 flex items-center px-5 border-b">
+      <!-- Brand — click to go home -->
+      <NuxtLink to="/" class="h-16 flex items-center px-5 border-b hover:bg-muted/40 transition-colors">
         <div class="h-9 w-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center mr-3">
           <Heart class="h-5 w-5" />
         </div>
@@ -75,7 +74,7 @@ const initials = computed(() => {
           <div class="text-base font-bold leading-tight">케어닥</div>
           <div class="text-[10px] text-muted-foreground font-medium tracking-wider uppercase">HQ</div>
         </div>
-      </div>
+      </NuxtLink>
 
       <!-- Nav -->
       <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
@@ -100,36 +99,32 @@ const initials = computed(() => {
         </NuxtLink>
       </nav>
 
-      <!-- Footer: user + theme + logout -->
+      <!-- Footer: user (click→settings) + logout -->
       <div class="border-t p-3 space-y-2">
-        <div v-if="me" class="flex items-center gap-3 px-2 py-2 rounded-md">
+        <NuxtLink
+          v-if="me"
+          to="/settings"
+          class="flex items-center gap-3 px-2 py-2 rounded-md hover:bg-muted transition-colors group"
+          title="내 정보 / 설정"
+        >
           <div class="h-9 w-9 rounded-full bg-gradient-to-br from-primary to-primary/60 text-primary-foreground flex items-center justify-center text-sm font-semibold flex-shrink-0">
             {{ initials }}
           </div>
           <div class="min-w-0 flex-1">
-            <div class="text-sm font-medium truncate">{{ me.name }}</div>
+            <div class="text-sm font-medium truncate group-hover:text-primary transition-colors">{{ me.name }}</div>
             <div class="text-xs text-muted-foreground truncate">
               {{ roleLabel[me.role] ?? me.role }}<template v-if="me.branch_name"> · {{ me.branch_name }}</template>
             </div>
           </div>
-        </div>
+        </NuxtLink>
 
-        <div class="flex items-center gap-1">
-          <NuxtLink
-            to="/settings"
-            class="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-md text-foreground/70 hover:bg-muted hover:text-primary transition-colors"
-          >
-            <UserCircle class="h-3.5 w-3.5" />
-            내 정보
-          </NuxtLink>
-          <button
-            class="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-md text-foreground/70 hover:bg-muted hover:text-destructive transition-colors"
-            @click="logout"
-          >
-            <LogOut class="h-3.5 w-3.5" />
-            로그아웃
-          </button>
-        </div>
+        <button
+          class="w-full flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-md text-foreground/70 hover:bg-muted hover:text-destructive transition-colors"
+          @click="logout"
+        >
+          <LogOut class="h-3.5 w-3.5" />
+          로그아웃
+        </button>
       </div>
     </aside>
 

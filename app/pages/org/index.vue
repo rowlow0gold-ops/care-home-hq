@@ -41,7 +41,7 @@ const branchGroups = computed(() => {
 // Pretty grouping per branch by position bucket
 function bucket(people: OrgPerson[]) {
   const groups = [
-    { label: "리더십",   positions: ["branch_manager", "office_manager"] },
+    { label: "센터장",   positions: ["branch_manager", "office_manager"] },
     { label: "의료/복지", positions: ["nurse_rn", "nurse_assistant", "social_worker", "doctor_visiting", "dietitian", "physical_therapist", "occupational_therapist"] },
     { label: "케어",     positions: ["caregiver"] },
     { label: "지원",     positions: ["cook", "cleaner", "driver", "other"] },
