@@ -2,7 +2,6 @@
 import {
   LayoutDashboard,
   Users,
-  Calendar,
   FileBarChart,
   UsersRound,
   Settings,
@@ -18,7 +17,6 @@ const route = useRoute();
 const nav = computed(() => [
   { to: "/", label: "대시보드", icon: LayoutDashboard, minRole: 1 },
   { to: "/residents", label: "어르신", icon: Users, minRole: 1 },
-  { to: "/schedule", label: "근무 일정", icon: Calendar, minRole: 3 },
   { to: "/staff", label: "직원 관리", icon: UsersRound, minRole: 3 },
   { to: "/org", label: "조직도", icon: Network, minRole: 2 },
   { to: "/reports", label: "보고서", icon: FileBarChart, minRole: 3 },
