@@ -7,8 +7,10 @@ const { login } = useAuth();
 const route = useRoute();
 const toast = useToast();
 
+// Pre-filled for dev convenience — matches seeded demo accounts.
+// Remove these before any real production deploy.
 const email = ref("manager@demo.com");
-const password = ref("");
+const password = ref("admin1234");
 const showPwd = ref(false);
 const error = ref<string | null>(null);
 const submitting = ref(false);
