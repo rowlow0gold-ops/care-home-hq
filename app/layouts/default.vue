@@ -9,9 +9,13 @@ import {
   UsersRound,
   Settings,
   LogOut,
+  Heart,
+  Sun,
+  Moon,
 } from "lucide-vue-next";
 
 const { me, logout } = useAuth();
+const { isDark, toggle } = useDarkMode();
 const route = useRoute();
 
 const nav = computed(() => [
@@ -45,51 +49,91 @@ const roleLabel: Record<string, string> = {
   hq: "본부",
   super_admin: "시스템 관리자",
 };
+
+function isActive(to: string) {
+  if (to === "/") return route.path === "/";
+  return route.path === to || route.path.startsWith(to + "/");
+}
+
+const initials = computed(() => {
+  const n = me.value?.name ?? "";
+  return n.slice(0, 1);
+});
 </script>
 
 <template>
-  <div class="min-h-screen flex bg-muted/40">
-    <aside class="w-60 border-r bg-background flex flex-col">
+  <div class="min-h-screen flex bg-muted/30">
+    <aside class="w-64 border-r bg-card flex flex-col">
+      <!-- Brand -->
       <div class="h-16 flex items-center px-5 border-b">
-        <div class="text-lg font-bold text-primary">케어닥</div>
-        <div class="ml-2 text-xs text-muted-foreground">HQ</div>
+        <div class="h-9 w-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center mr-3">
+          <Heart class="h-5 w-5" />
+        </div>
+        <div>
+          <div class="text-base font-bold leading-tight">케어닥</div>
+          <div class="text-[10px] text-muted-foreground font-medium tracking-wider uppercase">HQ</div>
+        </div>
       </div>
 
-      <nav class="flex-1 px-2 py-4 space-y-1">
+      <!-- Nav -->
+      <nav class="flex-1 px-3 py-4 space-y-0.5 overflow-y-auto">
         <NuxtLink
           v-for="item in visibleNav"
           :key="item.to"
           :to="item.to"
-          class="flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-colors hover:bg-muted"
+          class="group relative flex items-center gap-3 px-3 py-2 rounded-md text-sm transition-all"
           :class="
-            route.path === item.to || route.path.startsWith(item.to + '/')
-              ? 'bg-primary/10 text-primary font-medium'
-              : 'text-foreground/70'
+            isActive(item.to)
+              ? 'text-primary font-medium bg-primary/8'
+              : 'text-foreground/70 hover:bg-muted hover:text-foreground'
           "
         >
-          <component :is="item.icon" class="h-4 w-4" />
-          {{ item.label }}
+          <!-- left-bar active indicator -->
+          <span
+            class="absolute left-0 top-1/2 -translate-y-1/2 w-0.5 h-5 rounded-r-sm transition-all"
+            :class="isActive(item.to) ? 'bg-primary' : 'bg-transparent'"
+          />
+          <component :is="item.icon" class="h-4 w-4 flex-shrink-0" :class="isActive(item.to) ? 'text-primary' : ''" />
+          <span>{{ item.label }}</span>
         </NuxtLink>
       </nav>
 
-      <div class="border-t p-3">
-        <div v-if="me" class="text-sm">
-          <div class="font-medium truncate">{{ me.name }}</div>
-          <div class="text-xs text-muted-foreground">
-            {{ roleLabel[me.role] ?? me.role }}
+      <!-- Footer: user + theme + logout -->
+      <div class="border-t p-3 space-y-2">
+        <div v-if="me" class="flex items-center gap-3 px-2 py-2 rounded-md">
+          <div class="h-9 w-9 rounded-full bg-gradient-to-br from-primary to-primary/60 text-primary-foreground flex items-center justify-center text-sm font-semibold flex-shrink-0">
+            {{ initials }}
+          </div>
+          <div class="min-w-0 flex-1">
+            <div class="text-sm font-medium truncate">{{ me.name }}</div>
+            <div class="text-xs text-muted-foreground truncate">
+              {{ roleLabel[me.role] ?? me.role }}<template v-if="me.branch_name"> · {{ me.branch_name }}</template>
+            </div>
           </div>
         </div>
-        <button
-          class="mt-3 w-full flex items-center gap-2 px-3 py-2 text-sm rounded-md text-foreground/70 hover:bg-muted"
-          @click="logout"
-        >
-          <LogOut class="h-4 w-4" />
-          로그아웃
-        </button>
+
+        <div class="flex items-center gap-1">
+          <button
+            class="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-md text-foreground/70 hover:bg-muted transition-colors"
+            :title="isDark ? '라이트 모드로 전환' : '다크 모드로 전환'"
+            @click="toggle"
+          >
+            <Sun v-if="isDark" class="h-3.5 w-3.5" />
+            <Moon v-else class="h-3.5 w-3.5" />
+            {{ isDark ? '라이트' : '다크' }}
+          </button>
+          <button
+            class="flex-1 flex items-center justify-center gap-2 px-3 py-2 text-xs rounded-md text-foreground/70 hover:bg-muted hover:text-destructive transition-colors"
+            @click="logout"
+          >
+            <LogOut class="h-3.5 w-3.5" />
+            로그아웃
+          </button>
+        </div>
       </div>
     </aside>
 
-    <main class="flex-1 min-w-0">
+    <main class="flex-1 min-w-0 overflow-x-hidden">
       <slot />
     </main>
   </div>
