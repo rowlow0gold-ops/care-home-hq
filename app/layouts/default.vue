@@ -12,6 +12,8 @@ import {
   Heart,
   Sun,
   Moon,
+  Network,
+  CalendarOff,
 } from "@lucide/vue";
 
 const { me, logout } = useAuth();
@@ -24,7 +26,9 @@ const nav = computed(() => [
   { to: "/care-logs", label: "케어 기록", icon: ClipboardList, minRole: 1 },
   { to: "/medications", label: "투약", icon: Pill, minRole: 2 },
   { to: "/schedule", label: "근무 일정", icon: Calendar, minRole: 3 },
+  { to: "/leave", label: "휴가", icon: CalendarOff, minRole: 1 },
   { to: "/staff", label: "직원 관리", icon: UsersRound, minRole: 3 },
+  { to: "/org", label: "조직도", icon: Network, minRole: 2 },
   { to: "/reports", label: "보고서", icon: FileBarChart, minRole: 3 },
   { to: "/settings", label: "설정", icon: Settings, minRole: 3 },
 ]);
