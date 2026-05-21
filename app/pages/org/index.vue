@@ -16,7 +16,6 @@ interface OrgPerson {
   employment_type_ko: string;
   hired_on: string | null;
   contract_end_on: string | null;
-  agency_name: string | null;
   is_inactive: boolean;
 }
 
@@ -65,10 +64,8 @@ const positionIcon: Record<string, any> = {
 const employmentTone: Record<string, string> = {
   regular:        "bg-primary/10 text-primary",
   contract:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
-  short_contract: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-200",
   part_time:      "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-200",
   temporary:      "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200",
-  dispatched:     "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200",
   consultant:     "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200",
 };
 
@@ -244,7 +241,6 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
                     class="inline-block px-1.5 py-0.5 rounded text-[10px]"
                     :class="employmentTone[hoveredPerson.employment_type]"
                   >{{ hoveredPerson.employment_type_ko }}</span>
-                  <span v-if="hoveredPerson.agency_name" class="text-muted-foreground ml-1">· {{ hoveredPerson.agency_name }}</span>
                 </dd>
               </div>
               <div v-if="hoveredPerson.hired_on" class="flex">

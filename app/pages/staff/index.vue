@@ -50,11 +50,9 @@ const filtered = computed(() => {
 const tone: Record<string, string> = {
   regular: "bg-primary/10 text-primary",
   contract: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
-  short_contract: "bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-200",
   part_time: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-200",
   temporary: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
   arbeit: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-200",
-  dispatched: "bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-200",
   consultant: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200",
 };
 </script>

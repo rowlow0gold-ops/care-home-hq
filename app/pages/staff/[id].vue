@@ -19,7 +19,6 @@ interface Person {
   employment_type_ko: string;
   hired_on: string | null;
   contract_end_on: string | null;
-  agency_name: string | null;
 }
 
 const { data: p, error } = await useAsyncData(`staff-${id}`, () =>
@@ -31,11 +30,9 @@ useHead({ title: () => `${p.value?.full_name ?? "직원"} · 케어닥 HQ` });
 const tone: Record<string, string> = {
   regular: "bg-primary/10 text-primary",
   contract: "bg-blue-100 text-blue-700",
-  short_contract: "bg-cyan-100 text-cyan-700",
   part_time: "bg-violet-100 text-violet-700",
   temporary: "bg-blue-100 text-blue-700",
   arbeit: "bg-pink-100 text-pink-700",
-  dispatched: "bg-orange-100 text-orange-800",
   consultant: "bg-rose-100 text-rose-700",
 };
 </script>
@@ -123,13 +120,6 @@ const tone: Record<string, string> = {
               <div>
                 <dt class="text-xs text-muted-foreground">계약 만료</dt>
                 <dd>{{ p.contract_end_on }}</dd>
-              </div>
-            </div>
-            <div v-if="p.agency_name" class="flex items-start gap-3">
-              <Building2 class="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
-              <div>
-                <dt class="text-xs text-muted-foreground">파견사</dt>
-                <dd>{{ p.agency_name }}</dd>
               </div>
             </div>
           </dl>
