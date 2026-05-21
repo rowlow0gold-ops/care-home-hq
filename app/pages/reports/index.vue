@@ -44,6 +44,11 @@ const branchId = ref<string>("");
 const submitting = ref(false);
 const submitError = ref<string | null>(null);
 
+// Filters for the history list (independent from the trigger form)
+const filterBranch = ref<string>("");
+const filterStatus = ref<string>("");
+const filterYearMonth = ref<string>("");
+
 // Branch managers can only trigger their own branch — preselect + lock
 const isHq = computed(() => ["hq", "super_admin"].includes(me.value?.role ?? ""));
 if (!isHq.value && me.value?.branch_id) {
@@ -54,6 +59,14 @@ const branchById = computed(() => {
   const m = new Map<string, string>();
   for (const b of dashboard.value?.branches ?? []) m.set(b.id, b.name);
   return m;
+});
+
+const filteredRuns = computed(() => {
+  let arr = runs.value ?? [];
+  if (filterBranch.value) arr = arr.filter((r) => r.branch_id === filterBranch.value);
+  if (filterStatus.value) arr = arr.filter((r) => r.status === filterStatus.value);
+  if (filterYearMonth.value) arr = arr.filter((r) => r.year_month.startsWith(filterYearMonth.value));
+  return arr;
 });
 
 async function triggerRun() {
@@ -148,23 +161,54 @@ const statusLabel: Record<BillingRun["status"], string> = {
       </div>
     </Card>
 
-    <Card title="최근 청구 이력" description="최근 60건">
+    <div class="rounded-xl border bg-card overflow-hidden">
+      <div class="px-6 py-4 border-b">
+        <h2 class="font-semibold">최근 청구 이력</h2>
+        <p class="text-sm text-muted-foreground mt-0.5">최근 60건 · 필터로 좁혀보기</p>
+      </div>
+      <div class="px-6 py-3 border-b flex flex-wrap gap-3 items-center bg-muted/20">
+        <input
+          v-model="filterYearMonth"
+          placeholder="월 (2026-05)"
+          class="h-9 px-3 rounded-lg border border-input bg-background text-sm w-36 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+        >
+        <select
+          v-model="filterBranch"
+          class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+        >
+          <option value="">전체 지점</option>
+          <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
+        </select>
+        <select
+          v-model="filterStatus"
+          class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+        >
+          <option value="">전체 상태</option>
+          <option value="completed">완료</option>
+          <option value="running">처리중</option>
+          <option value="queued">대기</option>
+          <option value="failed">실패</option>
+        </select>
+        <div class="ml-auto text-xs text-muted-foreground tabular-nums">
+          {{ filteredRuns.length }}건 / {{ (runs ?? []).length }}건
+        </div>
+      </div>
       <table class="w-full text-sm">
         <thead>
-          <tr class="text-left text-xs text-muted-foreground border-b">
-            <th class="py-2 pr-3 font-medium">월</th>
-            <th class="py-2 pr-3 font-medium">지점</th>
-            <th class="py-2 pr-3 font-medium">상태</th>
-            <th class="py-2 pr-3 font-medium text-right">어르신</th>
-            <th class="py-2 pr-3 font-medium text-right">합계</th>
-            <th class="py-2 font-medium">시작 → 완료</th>
+          <tr class="text-left text-xs text-muted-foreground bg-muted/30">
+            <th class="py-3 px-6 font-medium">월</th>
+            <th class="py-3 px-3 font-medium">지점</th>
+            <th class="py-3 px-3 font-medium">상태</th>
+            <th class="py-3 px-3 font-medium text-right">어르신</th>
+            <th class="py-3 px-3 font-medium text-right">합계</th>
+            <th class="py-3 px-6 font-medium">시작 → 완료</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in runs ?? []" :key="r.id" class="border-b last:border-0">
-            <td class="py-3 pr-3 font-medium">{{ r.year_month }}</td>
-            <td class="py-3 pr-3">{{ branchById.get(r.branch_id) ?? "—" }}</td>
-            <td class="py-3 pr-3">
+          <tr v-for="r in filteredRuns" :key="r.id" class="border-t hover:bg-muted/30">
+            <td class="py-3 px-6 font-medium tabular-nums">{{ r.year_month }}</td>
+            <td class="py-3 px-3">{{ branchById.get(r.branch_id) ?? "—" }}</td>
+            <td class="py-3 px-3">
               <span
                 class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium"
                 :class="statusTone[r.status]"
@@ -175,19 +219,19 @@ const statusLabel: Record<BillingRun["status"], string> = {
                 {{ statusLabel[r.status] }}
               </span>
             </td>
-            <td class="py-3 pr-3 text-right">{{ r.resident_count ?? "—" }}</td>
-            <td class="py-3 pr-3 text-right">{{ fmtKRW(r.total_amount) }}</td>
-            <td class="py-3 text-xs text-muted-foreground">
+            <td class="py-3 px-3 text-right tabular-nums">{{ r.resident_count ?? "—" }}</td>
+            <td class="py-3 px-3 text-right tabular-nums">{{ fmtKRW(r.total_amount) }}</td>
+            <td class="py-3 px-6 text-xs text-muted-foreground">
               {{ fmtTime(r.triggered_at) }} → {{ fmtTime(r.completed_at) }}
             </td>
           </tr>
-          <tr v-if="(runs ?? []).length === 0">
-            <td colspan="6" class="py-8 text-center text-muted-foreground">
-              청구 이력이 없습니다. 위에서 첫 청구서를 생성하세요.
+          <tr v-if="filteredRuns.length === 0">
+            <td colspan="6" class="py-12 text-center text-muted-foreground">
+              {{ filterBranch || filterStatus || filterYearMonth ? "조건에 맞는 결과가 없습니다." : "청구 이력이 없습니다. 위에서 첫 청구서를 생성하세요." }}
             </td>
           </tr>
         </tbody>
       </table>
-    </Card>
+    </div>
   </div>
 </template>
