@@ -14,9 +14,42 @@ interface OnDuty {
   user_id: string;
   user_name: string;
   user_role: string;
+  user_position: string | null;
   check_in_at: string | null;
   check_out_at: string | null;
   status: string;
+}
+
+// position → Korean label (preferred over raw role)
+const POSITION_KO: Record<string, string> = {
+  caregiver: "요양보호사",
+  nurse_rn: "간호사",
+  nurse_assistant: "간호조무사",
+  social_worker: "사회복지사",
+  dietitian: "영양사",
+  physical_therapist: "물리치료사",
+  occupational_therapist: "작업치료사",
+  branch_manager: "센터장",
+  office_manager: "사무국장",
+  cook: "조리원",
+  cleaner: "환경미화원",
+  driver: "운전기사",
+  doctor_visiting: "촉탁의",
+  receptionist: "접수안내",
+  administrative: "행정직",
+  facility_manager: "시설관리자",
+};
+// role fallback when position is null
+const ROLE_KO: Record<string, string> = {
+  caregiver: "요양보호사",
+  nurse: "간호조무사",
+  branch_manager: "센터장",
+  hq: "본사",
+  super_admin: "시스템",
+};
+function roleLabel(r: OnDuty): string {
+  if (r.user_position && POSITION_KO[r.user_position]) return POSITION_KO[r.user_position];
+  return ROLE_KO[r.user_role] ?? r.user_role;
 }
 
 interface Branch {
@@ -170,7 +203,7 @@ const summary = computed(() => {
               >
                 <UserCheck class="h-3.5 w-3.5 text-muted-foreground" />
                 <span>{{ a.user_name }}</span>
-                <span class="text-[10px] text-muted-foreground ml-auto">{{ a.user_role }}</span>
+                <span class="text-[10px] text-muted-foreground ml-auto">{{ roleLabel(a) }}</span>
               </li>
               <li v-if="(shifts.get(code) ?? []).length === 0" class="text-xs text-muted-foreground italic py-2">
                 — 배정 없음 —

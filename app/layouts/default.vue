@@ -10,7 +10,6 @@ import {
   Heart,
   Network,
   CalendarOff,
-  Camera,
 } from "@lucide/vue";
 
 const { me, logout } = useAuth();
@@ -20,7 +19,6 @@ const route = useRoute();
 const nav = computed(() => [
   { to: "/", label: "대시보드", icon: LayoutDashboard, minRole: 1 },
   { to: "/residents", label: "어르신", icon: Users, minRole: 1 },
-  { to: "/photos", label: "사진 승인", icon: Camera, minRole: 3 },
   { to: "/schedule", label: "근무 일정", icon: Calendar, minRole: 3 },
   { to: "/leave", label: "휴가", icon: CalendarOff, minRole: 1 },
   { to: "/staff", label: "직원 관리", icon: UsersRound, minRole: 3 },

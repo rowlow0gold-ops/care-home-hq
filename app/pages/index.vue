@@ -12,6 +12,11 @@ interface DashboardSummary {
     incidents_7d: number;
     staff_on_duty: number;
     last_billing_amount: number | null;
+    services: string[];
+    current_caregivers: number;
+    current_nurses: number;
+    required_caregivers: number;
+    required_nurses: number;
   }>;
   totals: {
     residents: number;
@@ -40,6 +45,19 @@ function fmtKRWFull(n: number | null) {
   if (n === null || n === undefined) return "—";
   return `₩${n.toLocaleString("ko-KR")}`;
 }
+
+const SERVICE_LABEL: Record<string, string> = {
+  nursing_home: "요양원",
+  day_care: "주간보호센터",
+  visiting_care: "방문요양",
+};
+const SERVICE_SHORT: Record<string, string> = {
+  nursing_home: "요양",
+  day_care: "주간",
+  visiting_care: "방문",
+};
+function serviceLabel(s: string) { return SERVICE_LABEL[s] ?? s; }
+function serviceShort(s: string) { return SERVICE_SHORT[s] ?? s; }
 
 const kpis = computed(() => {
   const t = data.value?.totals;
@@ -191,9 +209,17 @@ function occupancyTone(pct: number) {
             @click="navigateTo(`/branches/${b.id}`)"
           >
             <td class="py-3 px-6">
-              <div class="flex items-center gap-2">
+              <div class="flex items-center gap-2 flex-wrap">
                 <Building2 class="h-3.5 w-3.5 text-primary" />
                 <span class="font-medium">{{ b.name }}</span>
+                <span
+                  v-for="s in b.services"
+                  :key="s"
+                  class="text-[10px] font-medium rounded px-1.5 py-0.5 border bg-muted/50 text-muted-foreground"
+                  :title="serviceLabel(s)"
+                >
+                  {{ serviceShort(s) }}
+                </span>
               </div>
             </td>
             <td class="py-3 px-3 text-right tabular-nums font-medium">{{ fmtKRWFull(b.last_billing_amount) }}</td>

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Building2, Users, UsersRound, MapPin, Phone, ImageIcon, Camera } from "@lucide/vue";
+import { ArrowLeft, Building2, Users, UsersRound, MapPin, Phone, ImageIcon, Camera, Stethoscope, Heart, AlertTriangle, CheckCircle2 } from "@lucide/vue";
 
 const route = useRoute();
 const id = route.params.id as string;
@@ -15,7 +15,23 @@ interface Branch {
   occupancy_pct: number;
   incidents_7d: number;
   staff_on_duty: number;
+  services: string[];
+  current_caregivers: number;
+  current_nurses: number;
+  required_caregivers: number;
+  required_nurses: number;
 }
+
+const SERVICE_KO: Record<string, string> = {
+  nursing_home: "요양원",
+  day_care: "주간보호센터",
+  visiting_care: "방문요양",
+};
+const SERVICE_TONE: Record<string, string> = {
+  nursing_home: "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/40 dark:text-blue-200 dark:border-blue-900",
+  day_care:     "bg-amber-50 text-amber-800 border-amber-200 dark:bg-amber-950/40 dark:text-amber-200 dark:border-amber-900",
+  visiting_care:"bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/40 dark:text-emerald-200 dark:border-emerald-900",
+};
 interface OrgPerson {
   id: string;
   branch_id: string | null;
@@ -93,9 +109,106 @@ const empCounts = computed(() => {
               </span>
               <span>· 정원 {{ branch.capacity }}명</span>
             </div>
+            <!-- Services -->
+            <div class="flex flex-wrap gap-1.5 mt-2">
+              <span
+                v-for="s in branch.services"
+                :key="s"
+                :class="['text-xs font-medium rounded-full px-2.5 py-0.5 border', SERVICE_TONE[s] ?? 'bg-muted']"
+              >
+                {{ SERVICE_KO[s] ?? s }}
+              </span>
+            </div>
           </div>
         </div>
       </header>
+
+      <!-- Staffing requirements (Korean LTCI rule) -->
+      <div class="rounded-xl border bg-card overflow-hidden mb-6">
+        <div class="px-5 py-3 border-b flex items-center gap-2">
+          <Stethoscope class="h-4 w-4 text-primary" />
+          <h2 class="font-semibold">인력 충원 현황</h2>
+          <span class="text-xs text-muted-foreground ml-auto">
+            기준: 요양보호사 어르신×2.1 · 간호(조무)사 어르신/25
+          </span>
+        </div>
+        <div class="grid grid-cols-1 sm:grid-cols-2 divide-y sm:divide-y-0 sm:divide-x">
+          <!-- Caregivers -->
+          <div class="p-5">
+            <div class="flex items-center gap-2 mb-2">
+              <Heart class="h-4 w-4 text-pink-500" />
+              <span class="text-sm font-medium">요양보호사</span>
+              <span class="ml-auto text-xs text-muted-foreground">
+                필요 {{ branch.required_caregivers }}명
+              </span>
+            </div>
+            <div class="flex items-baseline gap-2">
+              <span class="text-3xl font-bold tabular-nums">{{ branch.current_caregivers }}</span>
+              <span class="text-sm text-muted-foreground">/ {{ branch.required_caregivers }}</span>
+              <span
+                class="ml-auto inline-flex items-center gap-1 text-xs font-medium"
+                :class="branch.current_caregivers >= branch.required_caregivers ? 'text-emerald-600' : 'text-amber-600'"
+              >
+                <component
+                  :is="branch.current_caregivers >= branch.required_caregivers ? CheckCircle2 : AlertTriangle"
+                  class="h-3.5 w-3.5"
+                />
+                {{ branch.current_caregivers >= branch.required_caregivers
+                  ? "충원 완료"
+                  : `${branch.required_caregivers - branch.current_caregivers}명 부족` }}
+              </span>
+            </div>
+            <div class="h-1.5 bg-muted rounded-full overflow-hidden mt-3">
+              <div
+                class="h-full bg-pink-500 transition-all"
+                :style="{
+                  width:
+                    branch.required_caregivers > 0
+                      ? Math.min(100, (branch.current_caregivers / branch.required_caregivers) * 100) + '%'
+                      : '100%',
+                }"
+              />
+            </div>
+          </div>
+          <!-- Nurses -->
+          <div class="p-5">
+            <div class="flex items-center gap-2 mb-2">
+              <Stethoscope class="h-4 w-4 text-indigo-500" />
+              <span class="text-sm font-medium">간호(조무)사</span>
+              <span class="ml-auto text-xs text-muted-foreground">
+                필요 {{ branch.required_nurses }}명
+              </span>
+            </div>
+            <div class="flex items-baseline gap-2">
+              <span class="text-3xl font-bold tabular-nums">{{ branch.current_nurses }}</span>
+              <span class="text-sm text-muted-foreground">/ {{ branch.required_nurses }}</span>
+              <span
+                class="ml-auto inline-flex items-center gap-1 text-xs font-medium"
+                :class="branch.current_nurses >= branch.required_nurses ? 'text-emerald-600' : 'text-amber-600'"
+              >
+                <component
+                  :is="branch.current_nurses >= branch.required_nurses ? CheckCircle2 : AlertTriangle"
+                  class="h-3.5 w-3.5"
+                />
+                {{ branch.current_nurses >= branch.required_nurses
+                  ? "충원 완료"
+                  : `${branch.required_nurses - branch.current_nurses}명 부족` }}
+              </span>
+            </div>
+            <div class="h-1.5 bg-muted rounded-full overflow-hidden mt-3">
+              <div
+                class="h-full bg-indigo-500 transition-all"
+                :style="{
+                  width:
+                    branch.required_nurses > 0
+                      ? Math.min(100, (branch.current_nurses / branch.required_nurses) * 100) + '%'
+                      : '100%',
+                }"
+              />
+            </div>
+          </div>
+        </div>
+      </div>
 
       <!-- Facility section — visual identity of the center -->
       <div class="rounded-xl border bg-card overflow-hidden mb-6">
