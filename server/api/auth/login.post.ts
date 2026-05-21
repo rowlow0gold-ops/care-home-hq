@@ -12,7 +12,9 @@ const Body = z.object({
 });
 
 interface LoginResponse {
-  token: string;
+  access_token: string;
+  refresh_token: string;
+  token_type: string;
   expires_in: number;
 }
 
@@ -32,6 +34,6 @@ export default defineEventHandler(async (event) => {
     });
   }
 
-  setSessionCookie(event, res.token, res.expires_in);
+  setSessionCookie(event, res.access_token, res.expires_in);
   return { ok: true };
 });

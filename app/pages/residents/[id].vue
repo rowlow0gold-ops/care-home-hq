@@ -30,34 +30,27 @@ const api = useApi();
 
 interface ResidentDetail {
   id: string;
-  name: string;
+  full_name: string;
+  sex: "male" | "female" | "other";
   birth_date: string;
-  sex: "M" | "F";
-  branch_name: string;
-  ltci_grade: number | null;
-  admitted_at: string | null;
+  care_grade: string | null;
+  room_number: string | null;
+  admitted_on: string;
   status: string;
-  primary_caregiver_name: string | null;
-  conditions: string[];
 }
 interface Vital {
   id: string;
-  measured_at: string;
-  hr: number | null;
-  bp_sys: number | null;
-  bp_dia: number | null;
-  spo2: number | null;
-  temp_c: number | null;
+  recorded_at: string;
+  kind: string;   // heart_rate | blood_pressure_systolic | spo2 | ...
+  value: number;
   note: string | null;
-  measured_by_name: string | null;
 }
 interface CareLog {
   id: string;
-  logged_at: string;
+  recorded_at: string;
   category: string;
   body: string;
   flagged: boolean;
-  logged_by_name: string;
 }
 
 const { data: resident, pending: residentPending } = await useAsyncData(
@@ -66,17 +59,32 @@ const { data: resident, pending: residentPending } = await useAsyncData(
 );
 const { data: vitalsData } = await useAsyncData(
   `vitals-${id}`,
-  () => api.get<{ items: Vital[] }>(`/v1/residents/${id}/vitals`, { limit: 30 }),
+  () => api.get<Vital[]>(`/v1/residents/${id}/vitals`),
 );
 const { data: logsData } = await useAsyncData(
   `carelogs-${id}`,
-  () => api.get<{ items: CareLog[] }>(`/v1/residents/${id}/care-logs`, { limit: 10 }),
+  () => api.get<CareLog[]>(`/v1/residents/${id}/care-logs`),
 );
 
-const vitals = computed(() => [...(vitalsData.value?.items ?? [])].reverse());
+// Group vitals by kind and reverse so chronological left→right.
+const vitalsByKind = computed(() => {
+  const grouped: Record<string, Vital[]> = {};
+  for (const v of vitalsData.value ?? []) {
+    (grouped[v.kind] ??= []).push(v);
+  }
+  for (const k of Object.keys(grouped)) {
+    grouped[k].reverse();
+  }
+  return grouped;
+});
+
+const hrSeries = computed(() => vitalsByKind.value.heart_rate ?? []);
+const spo2Series = computed(() => vitalsByKind.value.spo2 ?? []);
+
+// Use HR timeline as the x-axis (most frequently recorded vital).
 const labels = computed(() =>
-  vitals.value.map((v) =>
-    new Date(v.measured_at).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }),
+  hrSeries.value.map((v) =>
+    new Date(v.recorded_at).toLocaleDateString("ko-KR", { month: "numeric", day: "numeric" }),
   ),
 );
 
@@ -85,7 +93,7 @@ const chartData = computed(() => ({
   datasets: [
     {
       label: "심박수 (HR)",
-      data: vitals.value.map((v) => v.hr),
+      data: hrSeries.value.map((v) => v.value),
       borderColor: "rgb(20, 161, 122)",
       backgroundColor: "rgba(20, 161, 122, 0.1)",
       tension: 0.3,
@@ -93,7 +101,7 @@ const chartData = computed(() => ({
     },
     {
       label: "SpO₂",
-      data: vitals.value.map((v) => v.spo2),
+      data: spo2Series.value.map((v) => v.value),
       borderColor: "rgb(99, 102, 241)",
       backgroundColor: "rgba(99, 102, 241, 0.05)",
       tension: 0.3,
@@ -148,14 +156,15 @@ function fmtTime(iso: string) {
     <template v-else-if="resident">
       <header class="flex items-start justify-between gap-4 mb-6">
         <div>
-          <h1 class="text-2xl font-bold">{{ resident.name }}</h1>
+          <h1 class="text-2xl font-bold">{{ resident.full_name }}</h1>
           <p class="text-sm text-muted-foreground">
-            {{ resident.branch_name }} ·
-            {{ resident.sex === "M" ? "남" : "여" }} ·
-            {{ resident.ltci_grade ? `장기요양 ${resident.ltci_grade}등급` : "등급 미부여" }}
-            <template v-if="resident.primary_caregiver_name">
-              · 담당: {{ resident.primary_caregiver_name }}
-            </template>
+            <template v-if="resident.room_number">{{ resident.room_number }}호 ·</template>
+            {{ resident.sex === "male" ? "남" : resident.sex === "female" ? "여" : "기타" }} ·
+            {{
+              resident.care_grade
+                ? `장기요양 ${resident.care_grade.replace("grade_", "")}등급`
+                : "등급 미부여"
+            }}
           </p>
         </div>
         <NuxtLink :to="`/residents/${id}/new-vital`">
@@ -167,10 +176,10 @@ function fmtTime(iso: string) {
       </header>
 
       <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 mb-4">
-        <Card class="lg:col-span-2" title="활력징후 추이" description="최근 30회 측정">
+        <Card class="lg:col-span-2" title="활력징후 추이" description="최근 측정 (HR + SpO₂)">
           <div class="h-64">
             <LineChart
-              v-if="vitals.length > 0"
+              v-if="hrSeries.length > 0 || spo2Series.length > 0"
               :data="chartData"
               :options="chartOptions"
             />
@@ -180,27 +189,25 @@ function fmtTime(iso: string) {
           </div>
         </Card>
 
-        <Card title="기저질환">
-          <div v-if="resident.conditions?.length" class="flex flex-wrap gap-2">
-            <span
-              v-for="c in resident.conditions"
-              :key="c"
-              class="inline-flex items-center rounded-full bg-secondary px-2.5 py-0.5 text-xs"
-            >
-              {{ c }}
-            </span>
-          </div>
-          <p v-else class="text-sm text-muted-foreground">등록된 질환 없음</p>
+        <Card title="입소 정보">
+          <dl class="grid grid-cols-2 gap-y-2 text-sm">
+            <dt class="text-muted-foreground">생년월일</dt>
+            <dd>{{ resident.birth_date }}</dd>
+            <dt class="text-muted-foreground">입소일</dt>
+            <dd>{{ resident.admitted_on }}</dd>
+            <dt class="text-muted-foreground">상태</dt>
+            <dd>{{ resident.status }}</dd>
+          </dl>
         </Card>
       </div>
 
       <Card title="최근 케어 기록" description="최근 10건">
-        <div v-if="(logsData?.items ?? []).length === 0" class="text-sm text-muted-foreground py-4">
+        <div v-if="(logsData ?? []).length === 0" class="text-sm text-muted-foreground py-4">
           케어 기록이 없습니다.
         </div>
         <ul v-else class="divide-y">
           <li
-            v-for="log in logsData?.items"
+            v-for="log in (logsData ?? []).slice(0, 10)"
             :key="log.id"
             class="py-3 flex items-start gap-3"
           >
@@ -214,7 +221,7 @@ function fmtTime(iso: string) {
                   {{ log.category }}
                 </span>
                 <span class="text-xs text-muted-foreground">
-                  {{ fmtTime(log.logged_at) }} · {{ log.logged_by_name }}
+                  {{ fmtTime(log.recorded_at) }}
                 </span>
               </div>
               <p class="text-sm mt-0.5">{{ log.body }}</p>

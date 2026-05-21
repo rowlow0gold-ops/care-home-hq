@@ -3,17 +3,18 @@ useHead({ title: "직원 관리 · 케어닥 HQ" });
 
 interface Staff {
   id: string;
-  name: string;
   email: string;
+  full_name: string;
   role: "caregiver" | "nurse" | "branch_manager" | "hq" | "super_admin";
-  branch_name: string | null;
-  status: "active" | "inactive";
-  hired_at: string | null;
+  phone: string | null;
+  branch_id: string | null;
+  deactivated_at: string | null;
+  created_at: string;
 }
 
 const api = useApi();
 const { data, pending, error } = await useAsyncData("staff", () =>
-  api.get<{ items: Staff[] }>("/v1/staff"),
+  api.get<Staff[]>("/v1/staff"),
 );
 
 const roleLabel: Record<Staff["role"], string> = {
@@ -38,26 +39,26 @@ const roleLabel: Record<Staff["role"], string> = {
             <th class="py-2 pr-4 font-medium">이름</th>
             <th class="py-2 pr-4 font-medium">이메일</th>
             <th class="py-2 pr-4 font-medium">역할</th>
-            <th class="py-2 pr-4 font-medium">지점</th>
+            <th class="py-2 pr-4 font-medium">연락처</th>
             <th class="py-2 font-medium">상태</th>
           </tr>
         </thead>
         <tbody>
-          <tr v-for="s in data?.items ?? []" :key="s.id" class="border-b last:border-0">
-            <td class="py-3 pr-4 font-medium">{{ s.name }}</td>
+          <tr v-for="s in data ?? []" :key="s.id" class="border-b last:border-0">
+            <td class="py-3 pr-4 font-medium">{{ s.full_name }}</td>
             <td class="py-3 pr-4 text-muted-foreground">{{ s.email }}</td>
             <td class="py-3 pr-4">{{ roleLabel[s.role] }}</td>
-            <td class="py-3 pr-4">{{ s.branch_name ?? "—" }}</td>
+            <td class="py-3 pr-4 text-muted-foreground">{{ s.phone ?? "—" }}</td>
             <td class="py-3">
               <span
                 class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                :class="s.status === 'active' ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'"
+                :class="!s.deactivated_at ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground'"
               >
-                {{ s.status === "active" ? "활성" : "비활성" }}
+                {{ !s.deactivated_at ? "활성" : "비활성" }}
               </span>
             </td>
           </tr>
-          <tr v-if="(data?.items ?? []).length === 0">
+          <tr v-if="(data ?? []).length === 0">
             <td colspan="5" class="py-8 text-center text-muted-foreground">직원이 없습니다.</td>
           </tr>
         </tbody>

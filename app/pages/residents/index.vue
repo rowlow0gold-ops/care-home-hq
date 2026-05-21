@@ -5,13 +5,14 @@ useHead({ title: "어르신 · 케어닥 HQ" });
 
 interface Resident {
   id: string;
+  tenant_id: string;
   branch_id: string;
-  branch_name: string;
-  name: string;
+  full_name: string;
+  sex: "male" | "female" | "other";
   birth_date: string;
-  sex: "M" | "F";
-  ltci_grade: number | null;
-  admitted_at: string | null;
+  care_grade: string | null;
+  room_number: string | null;
+  admitted_on: string;
   status: "active" | "discharged" | "deceased";
 }
 
@@ -19,16 +20,23 @@ const api = useApi();
 const q = ref("");
 const debouncedQ = refDebounced(q, 250);
 
-const { data, pending, error, refresh } = await useAsyncData(
+const { data: rawList, pending, error, refresh } = await useAsyncData(
   "residents",
-  () =>
-    api.get<{ items: Resident[] }>("/v1/residents", {
-      q: debouncedQ.value || undefined,
-    }),
-  { watch: [debouncedQ] },
+  () => api.get<Resident[]>("/v1/residents"),
 );
 
-const sexLabel: Record<Resident["sex"], string> = { M: "남", F: "여" };
+const data = computed(() => {
+  const items = rawList.value ?? [];
+  if (!debouncedQ.value) return items;
+  const needle = debouncedQ.value.toLowerCase();
+  return items.filter((r) => r.full_name.toLowerCase().includes(needle));
+});
+
+const sexLabel: Record<Resident["sex"], string> = {
+  male: "남",
+  female: "여",
+  other: "기타",
+};
 const statusLabel: Record<Resident["status"], string> = {
   active: "재원",
   discharged: "퇴소",
@@ -89,7 +97,7 @@ function age(birth: string) {
         <thead>
           <tr class="text-left text-xs text-muted-foreground border-b">
             <th class="py-2 pr-4 font-medium">이름</th>
-            <th class="py-2 pr-4 font-medium">지점</th>
+            <th class="py-2 pr-4 font-medium">호실</th>
             <th class="py-2 pr-4 font-medium">성별</th>
             <th class="py-2 pr-4 font-medium text-right">나이</th>
             <th class="py-2 pr-4 font-medium text-right">장기요양 등급</th>
@@ -98,17 +106,17 @@ function age(birth: string) {
         </thead>
         <tbody>
           <tr
-            v-for="r in data?.items ?? []"
+            v-for="r in data"
             :key="r.id"
             class="border-b last:border-0 hover:bg-muted/50 cursor-pointer"
             @click="navigateTo(`/residents/${r.id}`)"
           >
-            <td class="py-3 pr-4 font-medium">{{ r.name }}</td>
-            <td class="py-3 pr-4 text-muted-foreground">{{ r.branch_name }}</td>
+            <td class="py-3 pr-4 font-medium">{{ r.full_name }}</td>
+            <td class="py-3 pr-4 text-muted-foreground">{{ r.room_number ?? "—" }}</td>
             <td class="py-3 pr-4">{{ sexLabel[r.sex] }}</td>
             <td class="py-3 pr-4 text-right">{{ age(r.birth_date) }}세</td>
             <td class="py-3 pr-4 text-right">
-              {{ r.ltci_grade !== null ? `${r.ltci_grade}등급` : "—" }}
+              {{ r.care_grade ? r.care_grade.replace("grade_", "") + "등급" : "—" }}
             </td>
             <td class="py-3">
               <span
@@ -119,7 +127,7 @@ function age(birth: string) {
               </span>
             </td>
           </tr>
-          <tr v-if="(data?.items ?? []).length === 0">
+          <tr v-if="data.length === 0">
             <td colspan="6" class="py-8 text-center text-muted-foreground">
               {{ q ? `"${q}" 검색 결과 없음` : "등록된 어르신이 없습니다." }}
             </td>

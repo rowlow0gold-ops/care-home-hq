@@ -15,19 +15,29 @@ const note = ref("");
 const submitting = ref(false);
 const error = ref<string | null>(null);
 
+async function postOne(kind: string, value: number | null) {
+  if (value === null || Number.isNaN(value)) return;
+  await api.post("/v1/vitals", {
+    resident_id: id,
+    kind,
+    value,
+    note: note.value || null,
+  });
+}
+
 async function onSubmit() {
   if (submitting.value) return;
   submitting.value = true;
   error.value = null;
   try {
-    await api.post(`/v1/residents/${id}/vitals`, {
-      hr: hr.value,
-      bp_sys: bpSys.value,
-      bp_dia: bpDia.value,
-      spo2: spo2.value,
-      temp_c: tempC.value,
-      note: note.value || null,
-    });
+    // server takes one kind per POST; fan out in parallel
+    await Promise.all([
+      postOne("heart_rate", hr.value),
+      postOne("blood_pressure_systolic", bpSys.value),
+      postOne("blood_pressure_diastolic", bpDia.value),
+      postOne("spo2", spo2.value),
+      postOne("temperature_celsius", tempC.value),
+    ]);
     await router.push(`/residents/${id}`);
   } catch (err: any) {
     error.value = err?.data?.message ?? err?.statusMessage ?? "저장 실패";
