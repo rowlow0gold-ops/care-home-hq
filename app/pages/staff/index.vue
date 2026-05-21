@@ -259,6 +259,27 @@ const leaveFiltered = computed(() => {
   return r;
 });
 
+// 휴가 pagination
+const leavePageSize = ref(25);
+const leavePage = ref(1);
+const leaveTotalPages = computed(() =>
+  Math.max(1, Math.ceil(leaveFiltered.value.length / leavePageSize.value)),
+);
+watch([leaveStatus, leaveBranch, debouncedLeaveQ, leavePageSize], () => {
+  leavePage.value = 1;
+});
+watch(leaveTotalPages, (n) => { if (leavePage.value > n) leavePage.value = n; });
+const leavePaged = computed(() => {
+  const start = (leavePage.value - 1) * leavePageSize.value;
+  return leaveFiltered.value.slice(start, start + leavePageSize.value);
+});
+const leavePageStart = computed(() =>
+  leaveFiltered.value.length === 0 ? 0 : (leavePage.value - 1) * leavePageSize.value + 1,
+);
+const leavePageEnd = computed(() =>
+  Math.min(leavePage.value * leavePageSize.value, leaveFiltered.value.length),
+);
+
 const leaveTypeKo: Record<string, string> = {
   annual: "연차", monthly: "월차", sick: "병가",
   personal: "경조사", maternity: "출산휴가", public: "공가",
@@ -608,7 +629,7 @@ function fmtDate(iso: string) {
           </thead>
           <tbody>
             <tr
-              v-for="r in leaveFiltered"
+              v-for="r in leavePaged"
               :key="r.id"
               class="border-t hover:bg-muted/30 transition-colors"
             >
@@ -642,6 +663,46 @@ function fmtDate(iso: string) {
             </tr>
           </tbody>
         </table>
+
+        <!-- Pagination -->
+        <div
+          v-if="leaveFiltered.length > 0"
+          class="px-6 py-3 border-t flex flex-wrap items-center gap-3 text-xs"
+        >
+          <div class="text-muted-foreground tabular-nums">
+            {{ leavePageStart }}–{{ leavePageEnd }} / 총 {{ leaveFiltered.length }}건
+          </div>
+          <div class="ml-auto flex items-center gap-2">
+            <label class="text-muted-foreground">페이지당</label>
+            <select
+              v-model.number="leavePageSize"
+              class="h-8 px-2 rounded-md border border-input bg-background text-xs"
+            >
+              <option v-for="n in pageSizeOptions" :key="n" :value="n">{{ n }}</option>
+            </select>
+          </div>
+          <div class="flex items-center gap-1">
+            <button
+              class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
+              :disabled="leavePage <= 1"
+              @click="leavePage = leavePage - 1"
+              title="이전"
+            >
+              <ChevronLeft class="h-4 w-4" />
+            </button>
+            <span class="px-2 tabular-nums">
+              <strong>{{ leavePage }}</strong> / {{ leaveTotalPages }}
+            </span>
+            <button
+              class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
+              :disabled="leavePage >= leaveTotalPages"
+              @click="leavePage = leavePage + 1"
+              title="다음"
+            >
+              <ChevronRight class="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   </div>
