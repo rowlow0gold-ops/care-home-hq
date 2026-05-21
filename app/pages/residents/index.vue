@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Plus, MapPin } from "@lucide/vue";
+import { Search, Plus, MapPin, ChevronLeft, ChevronRight, ArrowUpDown } from "@lucide/vue";
 
 useHead({ title: "어르신 · 케어닥 HQ" });
 
@@ -15,18 +15,41 @@ interface Resident {
   admitted_on: string;
   status: "active" | "discharged" | "deceased";
 }
+interface PagedResidents { items: Resident[]; total: number; page: number; page_size: number }
 interface Branch { id: string; name: string }
 
 const api = useApi();
 const q = ref("");
-const debouncedQ = refDebounced(q, 250);
+const debouncedQ = refDebounced(q, 300);
 const branchFilter = ref<string>("");
 const gradeFilter = ref<string>("");
+const statusFilter = ref<string>("active");
+const page = ref(1);
+const pageSize = ref(25);
+const sortBy = ref<"full_name" | "admitted_on" | "care_grade" | "room_number">("full_name");
+const sortDesc = ref(false);
 
-const [{ data: rawList, pending, error, refresh }, { data: dashboard }] = await Promise.all([
-  useAsyncData("residents", () => api.get<Resident[]>("/v1/residents")),
-  useAsyncData("res-branches", () => api.get<{ branches: Branch[] }>("/v1/dashboard/summary")),
-]);
+// Reset to page 1 when filters change
+watch([debouncedQ, branchFilter, gradeFilter, statusFilter, sortBy, sortDesc], () => { page.value = 1; });
+
+const { data: dashboard } = await useAsyncData("res-branches", () =>
+  api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
+);
+
+const { data: paged, pending, error, refresh } = await useAsyncData(
+  "residents-paged",
+  () => api.get<PagedResidents>("/v1/residents/paged", {
+    q: debouncedQ.value || undefined,
+    branch_id: branchFilter.value || undefined,
+    care_grade: gradeFilter.value || undefined,
+    status: statusFilter.value || undefined,
+    page: page.value,
+    page_size: pageSize.value,
+    sort_by: sortBy.value,
+    sort_desc: sortDesc.value,
+  }),
+  { watch: [debouncedQ, branchFilter, gradeFilter, statusFilter, page, pageSize, sortBy, sortDesc] },
+);
 
 const branchById = computed(() => {
   const m = new Map<string, string>();
@@ -34,19 +57,19 @@ const branchById = computed(() => {
   return m;
 });
 
-const data = computed(() => {
-  let items = rawList.value ?? [];
-  if (branchFilter.value) items = items.filter((r) => r.branch_id === branchFilter.value);
-  if (gradeFilter.value)  items = items.filter((r) => (r.care_grade ?? "") === gradeFilter.value);
-  if (debouncedQ.value) {
-    const needle = debouncedQ.value.toLowerCase();
-    items = items.filter((r) =>
-      r.full_name.toLowerCase().includes(needle) ||
-      (r.room_number ?? "").toLowerCase().includes(needle),
-    );
-  }
-  return items;
-});
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil((paged.value?.total ?? 0) / pageSize.value)),
+);
+const showingFrom = computed(() => paged.value && paged.value.total > 0 ? (page.value - 1) * pageSize.value + 1 : 0);
+const showingTo = computed(() => paged.value
+  ? Math.min(page.value * pageSize.value, paged.value.total)
+  : 0,
+);
+
+function setSort(col: typeof sortBy.value) {
+  if (sortBy.value === col) sortDesc.value = !sortDesc.value;
+  else { sortBy.value = col; sortDesc.value = false; }
+}
 
 const sexLabel: Record<Resident["sex"], string> = { male: "남", female: "여", other: "기타" };
 const statusLabel: Record<Resident["status"], string> = {
@@ -79,7 +102,7 @@ function age(birth: string) {
       <div>
         <h1 class="text-3xl font-bold tracking-tight">어르신</h1>
         <p class="text-sm text-muted-foreground mt-1">
-          전 지점 입소자 명단. 클릭하면 활력징후·케어 기록을 볼 수 있습니다.
+          전 지점 입소자 명단. 서버에서 페이지 단위로 불러옵니다.
         </p>
       </div>
       <NuxtLink to="/residents/new">
@@ -120,12 +143,20 @@ function age(birth: string) {
           <option value="5">5등급</option>
           <option value="cognitive_support">인지지원</option>
         </select>
+        <select
+          v-model="statusFilter"
+          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+        >
+          <option value="active">재원중</option>
+          <option value="discharged">퇴소</option>
+          <option value="deceased">사망</option>
+        </select>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
-          총 {{ data.length }}명 / {{ (rawList ?? []).length }}명
+          {{ showingFrom }}–{{ showingTo }} / {{ paged?.total ?? 0 }}명
         </div>
       </div>
 
-      <div v-if="pending && !rawList" class="py-12 text-center text-sm text-muted-foreground">
+      <div v-if="pending && !paged" class="py-12 text-center text-sm text-muted-foreground">
         불러오는 중…
       </div>
       <div v-else-if="error" class="py-12 text-center text-sm text-destructive">
@@ -135,19 +166,28 @@ function age(birth: string) {
 
       <table v-else class="w-full text-sm">
         <thead>
-          <tr class="text-left text-xs text-muted-foreground bg-muted/30">
-            <th class="py-3 px-6 font-medium">이름</th>
+          <tr class="text-left text-xs text-muted-foreground bg-muted/30 select-none">
+            <th class="py-3 px-6 font-medium cursor-pointer hover:text-foreground" @click="setSort('full_name')">
+              <span class="inline-flex items-center gap-1">이름 <ArrowUpDown class="h-3 w-3 opacity-50" /></span>
+            </th>
             <th class="py-3 px-3 font-medium">지점</th>
-            <th class="py-3 px-3 font-medium">호실</th>
+            <th class="py-3 px-3 font-medium cursor-pointer hover:text-foreground" @click="setSort('room_number')">
+              <span class="inline-flex items-center gap-1">호실 <ArrowUpDown class="h-3 w-3 opacity-50" /></span>
+            </th>
             <th class="py-3 px-3 font-medium">성별</th>
             <th class="py-3 px-3 font-medium text-right">나이</th>
-            <th class="py-3 px-3 font-medium text-right">장기요양</th>
+            <th class="py-3 px-3 font-medium text-right cursor-pointer hover:text-foreground" @click="setSort('care_grade')">
+              <span class="inline-flex items-center gap-1 justify-end">장기요양 <ArrowUpDown class="h-3 w-3 opacity-50" /></span>
+            </th>
+            <th class="py-3 px-3 font-medium cursor-pointer hover:text-foreground" @click="setSort('admitted_on')">
+              <span class="inline-flex items-center gap-1">입소일 <ArrowUpDown class="h-3 w-3 opacity-50" /></span>
+            </th>
             <th class="py-3 px-6 font-medium">상태</th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="r in data"
+            v-for="r in paged?.items ?? []"
             :key="r.id"
             class="border-t hover:bg-muted/40 cursor-pointer transition-colors"
             @click="navigateTo(`/residents/${r.id}`)"
@@ -163,19 +203,52 @@ function age(birth: string) {
             <td class="py-3 px-3">{{ sexLabel[r.sex] }}</td>
             <td class="py-3 px-3 text-right tabular-nums">{{ age(r.birth_date) }}세</td>
             <td class="py-3 px-3 text-right">{{ gradeLabel(r.care_grade) }}</td>
+            <td class="py-3 px-3 text-muted-foreground text-xs tabular-nums">{{ r.admitted_on }}</td>
             <td class="py-3 px-6">
               <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium" :class="statusTone[r.status]">
                 {{ statusLabel[r.status] }}
               </span>
             </td>
           </tr>
-          <tr v-if="data.length === 0">
-            <td colspan="7" class="py-12 text-center text-muted-foreground">
-              {{ q || branchFilter || gradeFilter ? "조건에 맞는 결과가 없습니다." : "등록된 어르신이 없습니다." }}
+          <tr v-if="(paged?.items ?? []).length === 0">
+            <td colspan="8" class="py-12 text-center text-muted-foreground">
+              조건에 맞는 결과가 없습니다.
             </td>
           </tr>
         </tbody>
       </table>
+
+      <!-- Pagination -->
+      <div class="px-6 py-3 border-t flex items-center justify-between text-sm">
+        <div class="text-xs text-muted-foreground">
+          페이지 {{ paged?.page ?? 1 }} / {{ totalPages }}
+        </div>
+        <div class="flex items-center gap-2">
+          <select
+            v-model.number="pageSize"
+            class="h-8 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary"
+          >
+            <option :value="10">10/page</option>
+            <option :value="25">25/page</option>
+            <option :value="50">50/page</option>
+            <option :value="100">100/page</option>
+          </select>
+          <button
+            class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="page <= 1"
+            @click="page--"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </button>
+          <button
+            class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="page >= totalPages"
+            @click="page++"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>
