@@ -135,14 +135,15 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
             <button
               v-for="p in hqPeople"
               :key="p.id"
-              class="flex items-center gap-1.5 px-2 py-1 rounded-md border bg-card text-xs hover:border-primary/60 hover:bg-primary/5 transition-colors"
+              class="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors hover:ring-1 hover:ring-primary/40"
+              :class="employmentTone[p.employment_type] ?? 'bg-muted'"
               @mouseenter="onHover(p, $event)"
               @mouseleave="onLeave"
               @click="openPerson(p, $event)"
             >
-              <component :is="positionIcon[p.position] ?? Briefcase" class="h-3 w-3 text-muted-foreground" />
+              <component :is="positionIcon[p.position] ?? Briefcase" class="h-3 w-3 opacity-70" />
               <span class="font-medium">{{ p.full_name }}</span>
-              <span class="text-muted-foreground">· {{ p.position_ko }}</span>
+              <span class="opacity-70">· {{ p.position_ko }}</span>
             </button>
           </div>
         </div>
