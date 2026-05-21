@@ -34,8 +34,10 @@ export default defineNuxtConfig({
 
   runtimeConfig: {
     // server-only — used by /server/api proxies
-    apiBase: process.env.NUXT_API_BASE || "http://localhost:8080",
-    cookieSecure: process.env.NUXT_COOKIE_SECURE !== "false",
+    apiBase: process.env.NUXT_API_BASE || "https://care.minhojan-world.site",
+    // Default OFF so dev (http://localhost:3000) can actually receive the
+    // session cookie. Set NUXT_COOKIE_SECURE=true in production env.
+    cookieSecure: process.env.NUXT_COOKIE_SECURE === "true",
 
     public: {
       // exposed to the client (do not put secrets here)
