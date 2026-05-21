@@ -35,12 +35,33 @@ const toast = useToast();
 const { me } = useAuth();
 
 const statusFilter = ref<string>("pending");
+const branchFilter = ref<string>("");
+const q = ref("");
+const debouncedQ = refDebounced(q, 250);
 
 const { data: rows, refresh } = await useAsyncData(
   "leave-requests",
   () => api.get<LeaveRequest[]>("/v1/leave-requests", { status: statusFilter.value || undefined }),
   { watch: [statusFilter] },
 );
+
+interface Branch { id: string; name: string }
+const { data: dashboard } = await useAsyncData("leave-branches", () =>
+  api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
+);
+
+const filtered = computed(() => {
+  let r = rows.value ?? [];
+  if (branchFilter.value === "__hq__") r = r.filter((x) => !x.branch_id);
+  else if (branchFilter.value) r = r.filter((x) => x.branch_id === branchFilter.value);
+  if (debouncedQ.value) {
+    const n = debouncedQ.value.toLowerCase();
+    r = r.filter(
+      (x) => x.user_name.toLowerCase().includes(n) || (x.reason ?? "").toLowerCase().includes(n),
+    );
+  }
+  return r;
+});
 
 const { data: balance } = await useAsyncData("leave-balance", () =>
   api.get<Balance>("/v1/leave-requests/balance"),
@@ -213,19 +234,35 @@ function fmtDate(iso: string) {
       </div>
     </Transition>
 
-    <!-- Status filter tabs -->
-    <div class="mb-4 flex gap-1 border-b">
-      <button
-        v-for="s in ['pending','approved','rejected','']"
-        :key="s || 'all'"
-        class="px-4 py-2 text-sm border-b-2 transition-colors -mb-px"
-        :class="statusFilter === s
-          ? 'border-primary text-primary font-medium'
-          : 'border-transparent text-muted-foreground hover:text-foreground'"
-        @click="statusFilter = s"
+    <!-- Filters: status tabs + branch + search -->
+    <div class="mb-4 flex flex-wrap items-center gap-3">
+      <div class="flex gap-1 border-b -mb-px">
+        <button
+          v-for="s in ['pending','approved','rejected','']"
+          :key="s || 'all'"
+          class="px-4 py-2 text-sm border-b-2 transition-colors"
+          :class="statusFilter === s
+            ? 'border-primary text-primary font-medium'
+            : 'border-transparent text-muted-foreground hover:text-foreground'"
+          @click="statusFilter = s"
+        >
+          {{ s === "" ? "전체" : statusKo[s as LeaveRequest['status']] }}
+        </button>
+      </div>
+      <select
+        v-model="branchFilter"
+        class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
       >
-        {{ s === "" ? "전체" : statusKo[s as LeaveRequest['status']] }}
-      </button>
+        <option value="">전체 지점</option>
+        <option value="__hq__">본사만</option>
+        <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
+      </select>
+      <input
+        v-model="q"
+        placeholder="이름 / 사유 검색"
+        class="h-9 px-3 rounded-lg border border-input bg-background text-sm w-48 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+      >
+      <div class="ml-auto text-xs text-muted-foreground tabular-nums">{{ filtered.length }}건</div>
     </div>
 
     <!-- Requests list -->
@@ -243,7 +280,7 @@ function fmtDate(iso: string) {
           </tr>
         </thead>
         <tbody>
-          <tr v-for="r in rows ?? []" :key="r.id" class="border-t hover:bg-muted/30 transition-colors">
+          <tr v-for="r in filtered" :key="r.id" class="border-t hover:bg-muted/30 transition-colors">
             <td class="py-3 px-6">
               <div class="font-medium">{{ r.user_name }}</div>
               <div class="text-xs text-muted-foreground">
@@ -283,10 +320,10 @@ function fmtDate(iso: string) {
               </span>
             </td>
           </tr>
-          <tr v-if="(rows ?? []).length === 0">
+          <tr v-if="filtered.length === 0">
             <td :colspan="isManager ? 7 : 6" class="py-12 text-center text-sm text-muted-foreground">
               <CalendarOff class="h-10 w-10 mx-auto mb-3 opacity-30" />
-              {{ statusFilter ? `${statusKo[statusFilter as LeaveRequest['status']]} 항목이 없습니다.` : "휴가 신청 내역이 없습니다." }}
+              조건에 맞는 휴가 신청이 없습니다.
             </td>
           </tr>
         </tbody>
