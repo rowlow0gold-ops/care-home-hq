@@ -274,8 +274,7 @@ function occupancyTone(pct: number) {
           <tr
             v-for="b in data?.branches ?? []"
             :key="b.id"
-            class="border-t hover:bg-muted/40 cursor-pointer transition-colors"
-            @click="navigateTo(`/branches/${b.id}`)"
+            class="border-t hover:bg-muted/30 transition-colors"
           >
             <td class="py-3 px-6">
               <div class="flex items-center gap-2 flex-wrap">
@@ -316,9 +315,5 @@ function occupancyTone(pct: number) {
       </table>
     </div>
 
-    <div class="mt-6 flex items-center gap-2 text-xs text-muted-foreground">
-      <TrendingUp class="h-3.5 w-3.5" />
-      <span>지점 행 클릭 → 지점 상세 페이지 이동</span>
-    </div>
   </div>
 </template>
