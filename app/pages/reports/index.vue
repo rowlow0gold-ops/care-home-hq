@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Play, CheckCircle2, AlertCircle, Loader2, Download } from "@lucide/vue";
+import { CheckCircle2, AlertCircle, Loader2, Download } from "@lucide/vue";
 
 useHead({ title: "보고서 · 케어닥 HQ" });
 
@@ -22,39 +22,19 @@ interface Branch {
 }
 
 const api = useApi();
-const { me } = useAuth();
 
 const { data: dashboard } = await useAsyncData("rpt-dashboard", () =>
   api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
 );
 
-const { data: runs, refresh } = await useAsyncData("billing-runs", () =>
+const { data: runs } = await useAsyncData("billing-runs", () =>
   api.get<BillingRun[]>("/v1/billing/runs"),
 );
 
-// Default the year-month to last full month
-function defaultYearMonth() {
-  const d = new Date();
-  d.setDate(1);
-  d.setMonth(d.getMonth() - 1);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-
-const yearMonth = ref(defaultYearMonth());
-const branchId = ref<string>("");
-const submitting = ref(false);
-const submitError = ref<string | null>(null);
-
-// Filters for the history list (independent from the trigger form)
+// Filters for the history list
 const filterBranch = ref<string>(useDefaultBranch());
 const filterStatus = ref<string>("");
 const filterYearMonth = ref<string>("");
-
-// Branch managers can only trigger their own branch — preselect + lock
-const isHq = computed(() => ["hq", "super_admin"].includes(me.value?.role ?? ""));
-if (!isHq.value && me.value?.branch_id) {
-  branchId.value = me.value.branch_id;
-}
 
 const branchById = computed(() => {
   const m = new Map<string, string>();
@@ -70,31 +50,6 @@ const filteredRuns = computed(() => {
   return arr;
 });
 
-async function triggerRun() {
-  if (submitting.value) return;
-  submitting.value = true;
-  submitError.value = null;
-  try {
-    const body: any = { year_month: yearMonth.value };
-    if (isHq.value && branchId.value) body.branch_id = branchId.value;
-    await api.post("/v1/billing/run", body);
-    // Poll for ~10s for completion
-    for (let i = 0; i < 6; i++) {
-      await new Promise((r) => setTimeout(r, 1500));
-      await refresh();
-      const latest = (runs.value ?? []).find(
-        (r) => r.year_month === yearMonth.value,
-      );
-      if (latest?.status === "completed" || latest?.status === "failed") break;
-    }
-  } catch (err: any) {
-    submitError.value =
-      err?.data?.message ?? err?.statusMessage ?? "Failed to trigger run";
-  } finally {
-    submitting.value = false;
-  }
-}
-
 function fmtKRW(n: number | null) {
   if (n === null) return "—";
   return `₩${n.toLocaleString("ko-KR")}`;
@@ -103,9 +58,11 @@ function fmtKRW(n: number | null) {
 // Download the generated XLSX. Goes through the Nuxt proxy so the JWT cookie
 // is attached automatically and the browser handles the filename / save dialog.
 const downloadingId = ref<string | null>(null);
+const downloadError = ref<string | null>(null);
 async function downloadXlsx(run: BillingRun) {
   if (!run.has_xlsx || downloadingId.value) return;
   downloadingId.value = run.id;
+  downloadError.value = null;
   try {
     const res = await fetch(`/api/v1/billing/runs/${run.id}/xlsx`, {
       credentials: "include",
@@ -128,11 +85,12 @@ async function downloadXlsx(run: BillingRun) {
     a.remove();
     URL.revokeObjectURL(url);
   } catch (e) {
-    submitError.value = (e as Error).message;
+    downloadError.value = (e as Error).message;
   } finally {
     downloadingId.value = null;
   }
 }
+
 function fmtTime(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("ko-KR", {
@@ -162,40 +120,14 @@ const statusLabel: Record<BillingRun["status"], string> = {
     <header class="mb-6">
       <h1 class="text-2xl font-bold">보고서</h1>
       <p class="text-sm text-muted-foreground">
-        월별 장기요양보험(LTCI) 청구서 생성. 완료된 XLSX는 아래 이력에서 다운로드 후
-        국민건강보험공단 포털에 직접 업로드하세요.
+        월별 장기요양보험(LTCI) 청구 이력. 청구서 생성은 데스크톱 앱에서, 완료된 XLSX는
+        아래에서 다운로드 후 국민건강보험공단 포털에 직접 업로드하세요.
       </p>
     </header>
 
-    <Card title="월간 청구서 생성" class="mb-6">
-      <div class="flex flex-wrap items-end gap-3">
-        <div class="space-y-1">
-          <Label for="ym">청구 월</Label>
-          <Input id="ym" v-model="yearMonth" placeholder="2026-05" class="w-32" />
-        </div>
-        <div v-if="isHq" class="space-y-1">
-          <Label for="branch">지점</Label>
-          <select
-            id="branch"
-            v-model="branchId"
-            class="h-10 px-3 rounded-md border border-input bg-background text-sm w-48"
-          >
-            <option value="">선택…</option>
-            <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">
-              {{ b.name }}
-            </option>
-          </select>
-        </div>
-        <Button :disabled="submitting" @click="triggerRun">
-          <Play v-if="!submitting" class="h-4 w-4" />
-          <Loader2 v-else class="h-4 w-4 animate-spin" />
-          {{ submitting ? "처리 중..." : "청구서 생성" }}
-        </Button>
-      </div>
-      <div v-if="submitError" class="mt-3 text-sm text-destructive bg-destructive/10 p-2 rounded">
-        {{ submitError }}
-      </div>
-    </Card>
+    <div v-if="downloadError" class="mb-4 text-sm text-destructive bg-destructive/10 p-2 rounded">
+      {{ downloadError }}
+    </div>
 
     <div class="rounded-xl border bg-card overflow-hidden">
       <div class="px-6 py-4 border-b">
@@ -277,7 +209,7 @@ const statusLabel: Record<BillingRun["status"], string> = {
           </tr>
           <tr v-if="filteredRuns.length === 0">
             <td colspan="7" class="py-12 text-center text-muted-foreground">
-              {{ filterBranch || filterStatus || filterYearMonth ? "조건에 맞는 결과가 없습니다." : "청구 이력이 없습니다. 위에서 첫 청구서를 생성하세요." }}
+              {{ filterBranch || filterStatus || filterYearMonth ? "조건에 맞는 결과가 없습니다." : "청구 이력이 없습니다. 데스크톱 앱에서 첫 청구서를 생성하세요." }}
             </td>
           </tr>
         </tbody>
