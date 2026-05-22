@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Users, AlertCircle, ClipboardList, UserCheck, TrendingUp, MapPin, Wallet, Building2 } from "@lucide/vue";
+import { Users, AlertCircle, ClipboardList, UserCheck, Wallet, Building2 } from "@lucide/vue";
 
 useHead({ title: "대시보드 · 케어닥 HQ" });
 
@@ -199,13 +199,6 @@ function occupancyTone(pct: number) {
             <option value="">전체 지점</option>
             <option v-for="b in data?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
           </select>
-          <NuxtLink
-            to="/reports"
-            class="text-sm px-4 h-10 rounded-lg bg-primary text-primary-foreground flex items-center gap-2 hover:bg-primary/90 shadow-md shadow-primary/20"
-          >
-            청구서 관리
-            <TrendingUp class="h-4 w-4" />
-          </NuxtLink>
         </div>
       </div>
     </div>
