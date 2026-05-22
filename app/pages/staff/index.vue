@@ -385,7 +385,7 @@ function fmtDate(iso: string) {
           <option value="consultant">위촉직</option>
         </select>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
-          {{ filtered.length }} / {{ branchScoped.length }}명
+          {{ filtered.length }}명
         </div>
       </div>
 
