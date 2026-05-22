@@ -137,8 +137,9 @@ const statusLabel: Record<BillingRun["status"], string> = {
       <div class="px-6 py-3 border-b flex flex-wrap gap-3 items-center bg-muted/20">
         <input
           v-model="filterYearMonth"
-          placeholder="월 (2026-05)"
-          class="h-9 px-3 rounded-lg border border-input bg-background text-sm w-36 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          type="month"
+          class="h-9 px-3 rounded-lg border border-input bg-background text-sm w-40 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          @click="(e) => { const el = e.currentTarget as HTMLInputElement & { showPicker?: () => void }; if (typeof el.showPicker === 'function') { try { el.showPicker(); } catch {} } }"
         >
         <select
           v-model="filterBranch"
