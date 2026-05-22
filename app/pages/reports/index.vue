@@ -131,8 +131,8 @@ const statusLabel: Record<BillingRun["status"], string> = {
 
     <div class="rounded-xl border bg-card overflow-hidden">
       <div class="px-6 py-4 border-b">
-        <h2 class="font-semibold">최근 청구 이력</h2>
-        <p class="text-sm text-muted-foreground mt-0.5">최근 60건 · 필터로 좁혀보기</p>
+        <h2 class="font-semibold">청구 이력</h2>
+        <p class="text-sm text-muted-foreground mt-0.5">전체 이력 · 필터로 좁혀보기</p>
       </div>
       <div class="px-6 py-3 border-b flex flex-wrap gap-3 items-center bg-muted/20">
         <input
@@ -196,7 +196,7 @@ const statusLabel: Record<BillingRun["status"], string> = {
             <td class="py-3 px-6 text-right">
               <button
                 v-if="r.has_xlsx"
-                class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-primary/40 bg-transparent text-primary text-xs font-semibold uppercase tracking-wide hover:bg-primary/10 hover:border-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 :disabled="downloadingId === r.id"
                 @click="downloadXlsx(r)"
               >
