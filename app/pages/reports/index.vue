@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Play, CheckCircle2, AlertCircle, Loader2 } from "@lucide/vue";
+import { Play, CheckCircle2, AlertCircle, Loader2, Download } from "@lucide/vue";
 
 useHead({ title: "보고서 · 케어닥 HQ" });
 
@@ -13,6 +13,7 @@ interface BillingRun {
   resident_count: number | null;
   total_amount: number | null;
   failure_reason: string | null;
+  has_xlsx: boolean;
 }
 
 interface Branch {
@@ -98,6 +99,40 @@ function fmtKRW(n: number | null) {
   if (n === null) return "—";
   return `₩${n.toLocaleString("ko-KR")}`;
 }
+
+// Download the generated XLSX. Goes through the Nuxt proxy so the JWT cookie
+// is attached automatically and the browser handles the filename / save dialog.
+const downloadingId = ref<string | null>(null);
+async function downloadXlsx(run: BillingRun) {
+  if (!run.has_xlsx || downloadingId.value) return;
+  downloadingId.value = run.id;
+  try {
+    const res = await fetch(`/api/v1/billing/runs/${run.id}/xlsx`, {
+      credentials: "include",
+    });
+    if (!res.ok) throw new Error(`다운로드 실패 (${res.status})`);
+    const blob = await res.blob();
+    const branchName = branchById.value.get(run.branch_id) ?? "branch";
+    const fallback = `LTCI_청구_${branchName}_${run.year_month}.xlsx`;
+    // Prefer the filename from Content-Disposition (server already encodes 한글)
+    const cd = res.headers.get("Content-Disposition") ?? "";
+    const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) ?? /filename="([^"]+)"/i.exec(cd);
+    const filename = m ? decodeURIComponent(m[1]) : fallback;
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    submitError.value = (e as Error).message;
+  } finally {
+    downloadingId.value = null;
+  }
+}
 function fmtTime(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("ko-KR", {
@@ -127,7 +162,8 @@ const statusLabel: Record<BillingRun["status"], string> = {
     <header class="mb-6">
       <h1 class="text-2xl font-bold">보고서</h1>
       <p class="text-sm text-muted-foreground">
-        월별 장기요양보험(LTCI) 청구서 생성. 완료된 XLSX는 텔레그램으로 전송됩니다.
+        월별 장기요양보험(LTCI) 청구서 생성. 완료된 XLSX는 아래 이력에서 다운로드 후
+        국민건강보험공단 포털에 직접 업로드하세요.
       </p>
     </header>
 
@@ -201,7 +237,8 @@ const statusLabel: Record<BillingRun["status"], string> = {
             <th class="py-3 px-3 font-medium">상태</th>
             <th class="py-3 px-3 font-medium text-right">어르신</th>
             <th class="py-3 px-3 font-medium text-right">합계</th>
-            <th class="py-3 px-6 font-medium">시작 → 완료</th>
+            <th class="py-3 px-3 font-medium">시작 → 완료</th>
+            <th class="py-3 px-6 font-medium text-right">XLSX</th>
           </tr>
         </thead>
         <tbody>
@@ -221,12 +258,25 @@ const statusLabel: Record<BillingRun["status"], string> = {
             </td>
             <td class="py-3 px-3 text-right tabular-nums">{{ r.resident_count ?? "—" }}</td>
             <td class="py-3 px-3 text-right tabular-nums">{{ fmtKRW(r.total_amount) }}</td>
-            <td class="py-3 px-6 text-xs text-muted-foreground">
+            <td class="py-3 px-3 text-xs text-muted-foreground">
               {{ fmtTime(r.triggered_at) }} → {{ fmtTime(r.completed_at) }}
+            </td>
+            <td class="py-3 px-6 text-right">
+              <button
+                v-if="r.has_xlsx"
+                class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-input bg-background text-xs font-medium hover:bg-muted/40 disabled:opacity-50 disabled:cursor-not-allowed"
+                :disabled="downloadingId === r.id"
+                @click="downloadXlsx(r)"
+              >
+                <Loader2 v-if="downloadingId === r.id" class="h-3.5 w-3.5 animate-spin" />
+                <Download v-else class="h-3.5 w-3.5" />
+                다운로드
+              </button>
+              <span v-else class="text-xs text-muted-foreground">—</span>
             </td>
           </tr>
           <tr v-if="filteredRuns.length === 0">
-            <td colspan="6" class="py-12 text-center text-muted-foreground">
+            <td colspan="7" class="py-12 text-center text-muted-foreground">
               {{ filterBranch || filterStatus || filterYearMonth ? "조건에 맞는 결과가 없습니다." : "청구 이력이 없습니다. 위에서 첫 청구서를 생성하세요." }}
             </td>
           </tr>

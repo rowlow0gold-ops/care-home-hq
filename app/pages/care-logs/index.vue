@@ -73,7 +73,7 @@ function fmtTime(iso: string) {
     <header class="mb-6">
       <h1 class="text-3xl font-bold tracking-tight">케어 기록</h1>
       <p class="text-sm text-muted-foreground mt-1">
-        전 지점 케어 기록 통합 피드. 이상징후로 표시된 항목은 자동으로 텔레그램이 전송됩니다.
+        전 지점 케어 기록 통합 피드. 이상징후로 표시된 항목은 상단에 강조 표시됩니다.
       </p>
     </header>
 

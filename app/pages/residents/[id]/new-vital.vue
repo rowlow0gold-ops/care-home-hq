@@ -57,7 +57,7 @@ async function onSubmit() {
       어르신 상세
     </NuxtLink>
 
-    <Card title="활력징후 기록" description="범위를 벗어나면 자동으로 담당 지점장에게 텔레그램이 전송됩니다.">
+    <Card title="활력징후 기록" description="범위를 벗어나면 대시보드에 자동으로 경고가 표시됩니다.">
       <form class="space-y-4" @submit.prevent="onSubmit">
         <div class="grid grid-cols-2 gap-4">
           <div class="space-y-2">
