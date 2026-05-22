@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Heart, LogIn, Mail, Lock, Eye, EyeOff, Loader2, Building2, Shield, Copy } from "@lucide/vue";
+import { Heart, LogIn, Mail, Lock, Eye, EyeOff, Loader2, Building2, Shield, Copy, Search } from "@lucide/vue";
 
 definePageMeta({ layout: "auth" });
 
@@ -18,13 +18,8 @@ const submitting = ref(false);
 // Demo accounts seeded in the DB. All share password "admin1234".
 const hqAccount = { email: "hq@demo.com", label: "본사 관리자", icon: Shield };
 
-const branchAccounts = [
-  { email: "manager@demo.com",            branch: "강남센터",   label: "강남 시설장" }, // original seed
-  { email: "manager.bundang@demo.com",    branch: "분당센터",   label: "분당 시설장" },
-  // Wait — the original "bundang@demo.com" was the first bundang manager.
-];
-
-// All 10 branches are Seoul districts. Emails stayed as-is (just identifiers).
+// All branches are Seoul districts. Emails stayed as-is (just identifiers).
+// Designed to handle many entries — filter + virtual-friendly list.
 const branches = [
   { slug: "gangnam",      name: "강남센터",      email: "manager@demo.com" },
   { slug: "gangdong",     name: "강동센터",      email: "bundang@demo.com" },
@@ -37,6 +32,15 @@ const branches = [
   { slug: "nowon",        name: "노원센터",      email: "manager.ilsan@demo.com" },
   { slug: "gangbuk",      name: "강북센터",      email: "manager.suwon@demo.com" },
 ];
+
+const branchQuery = ref("");
+const filteredBranches = computed(() => {
+  const q = branchQuery.value.trim().toLowerCase();
+  if (!q) return branches;
+  return branches.filter(
+    (b) => b.name.toLowerCase().includes(q) || b.email.toLowerCase().includes(q),
+  );
+});
 
 function pick(account: { email: string }) {
   email.value = account.email;
@@ -183,18 +187,30 @@ async function onSubmit() {
           </button>
         </button>
 
-        <!-- Divider -->
-        <div class="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase mt-4 mb-2 px-1">
-          지점장 (Branch Managers)
+        <!-- Divider + search -->
+        <div class="flex items-center justify-between mt-4 mb-2 px-1 gap-2">
+          <span class="text-[10px] font-semibold tracking-widest text-muted-foreground uppercase whitespace-nowrap">
+            센터장 ({{ filteredBranches.length }}/{{ branches.length }})
+          </span>
+          <div class="relative flex-1 max-w-[180px]">
+            <Search class="absolute left-2 top-1/2 -translate-y-1/2 h-3 w-3 text-muted-foreground" />
+            <input
+              v-model="branchQuery"
+              type="search"
+              placeholder="센터/이메일 검색"
+              class="w-full h-7 pl-6 pr-2 rounded-md border border-input bg-background text-[11px] focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+            >
+          </div>
         </div>
 
-        <!-- Branch managers grid -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-1.5 max-h-[260px] overflow-y-auto pr-1">
+        <!-- Branch managers list — scrollable, single column to stay readable
+             even with hundreds of centers. -->
+        <div class="flex flex-col gap-1 max-h-[280px] overflow-y-auto pr-1 border-t border-b py-1.5">
           <button
-            v-for="b in branches"
+            v-for="b in filteredBranches"
             :key="b.slug"
             type="button"
-            class="flex items-center gap-2.5 px-2.5 py-2 rounded-md border border-transparent hover:bg-muted hover:border-border transition-all text-left group"
+            class="flex items-center gap-2.5 px-2.5 py-2 rounded-md border border-transparent hover:bg-muted hover:border-border transition-colors text-left group"
             @click="pick({ email: b.email })"
           >
             <div class="h-7 w-7 rounded-md bg-muted text-muted-foreground flex items-center justify-center flex-shrink-0 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
@@ -213,6 +229,12 @@ async function onSubmit() {
               <Copy class="h-3 w-3" />
             </button>
           </button>
+          <div
+            v-if="filteredBranches.length === 0"
+            class="text-center text-xs text-muted-foreground py-6"
+          >
+            검색 결과가 없습니다.
+          </div>
         </div>
 
         <p class="text-[11px] text-muted-foreground mt-4 leading-relaxed">
