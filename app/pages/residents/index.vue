@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, Plus, MapPin, ChevronLeft, ChevronRight, ArrowUpDown } from "@lucide/vue";
+import { Search, MapPin, ChevronLeft, ChevronRight, ArrowUpDown } from "@lucide/vue";
 
 useHead({ title: "어르신 · 케어닥 HQ" });
 
@@ -98,19 +98,11 @@ function age(birth: string) {
 
 <template>
   <div class="px-8 py-6 max-w-7xl mx-auto">
-    <header class="mb-6 flex items-start justify-between gap-4">
-      <div>
-        <h1 class="text-3xl font-bold tracking-tight">어르신</h1>
-        <p class="text-sm text-muted-foreground mt-1">
-          전 지점 입소자 명단. 서버에서 페이지 단위로 불러옵니다.
-        </p>
-      </div>
-      <NuxtLink to="/residents/new">
-        <Button>
-          <Plus class="h-4 w-4" />
-          입소 등록
-        </Button>
-      </NuxtLink>
+    <header class="mb-6">
+      <h1 class="text-3xl font-bold tracking-tight">어르신</h1>
+      <p class="text-sm text-muted-foreground mt-1">
+        전 지점 입소자 명단. 서버에서 페이지 단위로 불러옵니다.
+      </p>
     </header>
 
     <div class="rounded-xl border bg-card overflow-hidden">
