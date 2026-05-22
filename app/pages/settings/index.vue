@@ -1,22 +1,10 @@
 <script setup lang="ts">
-import { Sun, Moon, User, Mail, Briefcase, Building2 } from "@lucide/vue";
+import { Sun, Moon, User, Mail, Briefcase } from "@lucide/vue";
 
 useHead({ title: "설정 · 케어닥 HQ" });
 
-interface Branch {
-  id: string;
-  name: string;
-  resident_count: number;
-  occupancy_pct: number;
-}
-
 const { me } = useAuth();
 const { isDark, toggle } = useDarkMode();
-const api = useApi();
-
-const { data: dashboard } = await useAsyncData("settings-dashboard", () =>
-  api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
-);
 
 const roleLabel: Record<string, string> = {
   caregiver: "요양보호사",
@@ -86,30 +74,6 @@ const roleLabel: Record<string, string> = {
             {{ isDark ? "라이트로 전환" : "다크로 전환" }}
           </button>
         </div>
-      </div>
-
-      <!-- 지점 현황 -->
-      <div class="rounded-xl border bg-card overflow-hidden">
-        <div class="px-6 py-4 border-b flex items-center gap-2">
-          <Building2 class="h-4 w-4 text-primary" />
-          <h2 class="font-semibold">지점 현황</h2>
-        </div>
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="text-left text-xs text-muted-foreground bg-muted/30">
-              <th class="py-2 px-6 font-medium">지점명</th>
-              <th class="py-2 px-3 font-medium text-right">어르신</th>
-              <th class="py-2 px-6 font-medium text-right">입소율</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="b in dashboard?.branches ?? []" :key="b.id" class="border-t">
-              <td class="py-2 px-6 font-medium">{{ b.name }}</td>
-              <td class="py-2 px-3 text-right tabular-nums">{{ b.resident_count }}</td>
-              <td class="py-2 px-6 text-right tabular-nums">{{ b.occupancy_pct.toFixed(1) }}%</td>
-            </tr>
-          </tbody>
-        </table>
       </div>
     </div>
   </div>
