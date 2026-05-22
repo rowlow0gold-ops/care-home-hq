@@ -343,12 +343,6 @@ function fmtDate(iso: string) {
       >
         <CalendarOff class="h-4 w-4" />
         휴가
-        <span
-          v-if="(leaveRows ?? []).filter((x) => x.status === 'pending').length > 0"
-          class="ml-1 inline-flex items-center justify-center rounded-full bg-amber-500 text-white text-[10px] font-medium w-4 h-4 tabular-nums"
-        >
-          {{ (leaveRows ?? []).filter((x) => x.status === "pending").length }}
-        </span>
       </button>
     </div>
 
