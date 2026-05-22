@@ -73,10 +73,17 @@ const { data: people, pending, error } = await useAsyncData(
   () => api.get<Person[]>("/v1/org/chart"),
 );
 
+// Scoped to branch only — used as the "total" denominator so that when a
+// center is selected the counter reflects just that center, not the whole org.
+const branchScoped = computed(() => {
+  const rows = people.value ?? [];
+  if (branchFilter.value === "__hq__") return rows.filter((p) => !p.branch_id);
+  if (branchFilter.value) return rows.filter((p) => p.branch_id === branchFilter.value);
+  return rows;
+});
+
 const filtered = computed(() => {
-  let rows = people.value ?? [];
-  if (branchFilter.value === "__hq__") rows = rows.filter((p) => !p.branch_id);
-  else if (branchFilter.value) rows = rows.filter((p) => p.branch_id === branchFilter.value);
+  let rows = branchScoped.value;
   if (empFilter.value) rows = rows.filter((p) => p.employment_type === empFilter.value);
   if (debouncedQ.value) {
     const n = debouncedQ.value.toLowerCase();
@@ -316,7 +323,6 @@ function fmtDate(iso: string) {
       >
         <UsersRound class="h-4 w-4" />
         직원 목록
-        <span class="ml-1 text-[10px] tabular-nums opacity-70">{{ (people ?? []).length }}</span>
       </button>
       <button
         class="px-4 py-2 text-sm font-medium border-b-2 -mb-px transition flex items-center gap-1.5"
@@ -379,7 +385,7 @@ function fmtDate(iso: string) {
           <option value="consultant">위촉직</option>
         </select>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
-          {{ filtered.length }} / {{ (people ?? []).length }}명
+          {{ filtered.length }} / {{ branchScoped.length }}명
         </div>
       </div>
 
