@@ -7,12 +7,16 @@ interface DashboardSummary {
   branches: Array<{
     id: string;
     name: string;
+    branch_type: "hub" | "satellite";
     resident_count: number;
     occupancy_pct: number;
     incidents_7d: number;
     staff_on_duty: number;
     last_billing_amount: number | null;
     services: string[];
+    residential_capacity: number;
+    daycare_capacity: number;
+    home_visit_recipients: number;
     current_caregivers: number;
     current_nurses: number;
     required_caregivers: number;
@@ -273,6 +277,14 @@ function occupancyTone(pct: number) {
               <div class="flex items-center gap-2 flex-wrap">
                 <Building2 class="h-3.5 w-3.5 text-primary" />
                 <span class="font-medium">{{ b.name }}</span>
+                <span
+                  class="text-[10px] font-semibold uppercase tracking-wider rounded px-1.5 py-0.5"
+                  :class="b.branch_type === 'hub'
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-muted text-muted-foreground'"
+                >
+                  {{ b.branch_type === 'hub' ? '거점 Hub' : '위성 Sat' }}
+                </span>
                 <span
                   v-for="s in b.services"
                   :key="s"

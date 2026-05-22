@@ -18,19 +18,36 @@ const submitting = ref(false);
 // Demo accounts seeded in the DB. All share password "admin1234".
 const hqAccount = { email: "hq@demo.com", label: "본사 관리자", icon: Shield };
 
-// All branches are Seoul districts. Emails stayed as-is (just identifiers).
-// Designed to handle many entries — filter + virtual-friendly list.
+// All branches per spec v1.1: 5 Hubs (full-service) + 20 Satellites (day care
+// + home visit only). Search + scroll keep the panel usable at this density.
 const branches = [
-  { slug: "gangnam",      name: "강남센터",      email: "manager@demo.com" },
-  { slug: "gangdong",     name: "강동센터",      email: "bundang@demo.com" },
-  { slug: "seocho",       name: "서초센터",      email: "manager.seocho@demo.com" },
-  { slug: "songpa",       name: "송파센터",      email: "manager.songpa@demo.com" },
-  { slug: "mapo",         name: "마포센터",      email: "manager.mapo@demo.com" },
-  { slug: "yeongdeungpo", name: "영등포센터",    email: "manager.yeongdeungpo@demo.com" },
-  { slug: "jamsil",       name: "잠실센터",      email: "manager.jamsil@demo.com" },
-  { slug: "sinchon",      name: "신촌센터",      email: "manager.sinchon@demo.com" },
-  { slug: "nowon",        name: "노원센터",      email: "manager.ilsan@demo.com" },
-  { slug: "gangbuk",      name: "강북센터",      email: "manager.suwon@demo.com" },
+  // ---- Hubs (residential + day care + home visit) ----
+  { slug: "gangnam",      name: "강남센터",      email: "manager.gangnam@demo.com",      type: "hub" as const },
+  { slug: "songpa",       name: "송파센터",      email: "manager.songpa@demo.com",       type: "hub" as const },
+  { slug: "mapo",         name: "마포센터",      email: "manager.mapo@demo.com",         type: "hub" as const },
+  { slug: "yeongdeungpo", name: "영등포센터",    email: "manager.yeongdeungpo@demo.com", type: "hub" as const },
+  { slug: "bundang",      name: "분당센터",      email: "manager.bundang@demo.com",      type: "hub" as const },
+  // ---- Satellites (day care + home visit only) ----
+  { slug: "gangdong",   name: "강동센터",   email: "manager.gangdong@demo.com",   type: "satellite" as const },
+  { slug: "gangbuk",    name: "강북센터",   email: "manager.gangbuk@demo.com",    type: "satellite" as const },
+  { slug: "gangseo",    name: "강서센터",   email: "manager.gangseo@demo.com",    type: "satellite" as const },
+  { slug: "gwanak",     name: "관악센터",   email: "manager.gwanak@demo.com",     type: "satellite" as const },
+  { slug: "gwangjin",   name: "광진센터",   email: "manager.gwangjin@demo.com",   type: "satellite" as const },
+  { slug: "guro",       name: "구로센터",   email: "manager.guro@demo.com",       type: "satellite" as const },
+  { slug: "nowon",      name: "노원센터",   email: "manager.nowon@demo.com",      type: "satellite" as const },
+  { slug: "dobong",     name: "도봉센터",   email: "manager.dobong@demo.com",     type: "satellite" as const },
+  { slug: "dongdaemun", name: "동대문센터", email: "manager.dongdaemun@demo.com", type: "satellite" as const },
+  { slug: "dongjak",    name: "동작센터",   email: "manager.dongjak@demo.com",    type: "satellite" as const },
+  { slug: "seodaemun",  name: "서대문센터", email: "manager.seodaemun@demo.com",  type: "satellite" as const },
+  { slug: "seocho",     name: "서초센터",   email: "manager.seocho@demo.com",     type: "satellite" as const },
+  { slug: "seongdong",  name: "성동센터",   email: "manager.seongdong@demo.com",  type: "satellite" as const },
+  { slug: "seongbuk",   name: "성북센터",   email: "manager.seongbuk@demo.com",   type: "satellite" as const },
+  { slug: "yangcheon",  name: "양천센터",   email: "manager.yangcheon@demo.com",  type: "satellite" as const },
+  { slug: "yongsan",    name: "용산센터",   email: "manager.yongsan@demo.com",    type: "satellite" as const },
+  { slug: "eunpyeong",  name: "은평센터",   email: "manager.eunpyeong@demo.com",  type: "satellite" as const },
+  { slug: "jongno",     name: "종로센터",   email: "manager.jongno@demo.com",     type: "satellite" as const },
+  { slug: "junggu",     name: "중구센터",   email: "manager.junggu@demo.com",     type: "satellite" as const },
+  { slug: "jungnang",   name: "중랑센터",   email: "manager.jungnang@demo.com",   type: "satellite" as const },
 ];
 
 const branchQuery = ref("");
@@ -213,11 +230,26 @@ async function onSubmit() {
             class="flex items-center gap-2.5 px-2.5 py-2 rounded-md border border-transparent hover:bg-muted hover:border-border transition-colors text-left group"
             @click="pick({ email: b.email })"
           >
-            <div class="h-7 w-7 rounded-md bg-muted text-muted-foreground flex items-center justify-center flex-shrink-0 group-hover:bg-primary/10 group-hover:text-primary transition-colors">
+            <div
+              class="h-7 w-7 rounded-md flex items-center justify-center flex-shrink-0 transition-colors"
+              :class="b.type === 'hub'
+                ? 'bg-primary/15 text-primary'
+                : 'bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'"
+            >
               <Building2 class="h-3.5 w-3.5" />
             </div>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-medium truncate">{{ b.name }}</div>
+              <div class="flex items-center gap-1.5">
+                <span class="text-sm font-medium truncate">{{ b.name }}</span>
+                <span
+                  class="text-[9px] font-semibold uppercase tracking-wider rounded px-1 py-px"
+                  :class="b.type === 'hub'
+                    ? 'bg-primary/15 text-primary'
+                    : 'bg-muted text-muted-foreground'"
+                >
+                  {{ b.type === 'hub' ? 'Hub' : 'Sat' }}
+                </span>
+              </div>
               <div class="text-[11px] text-muted-foreground font-mono truncate">{{ b.email }}</div>
             </div>
             <button
