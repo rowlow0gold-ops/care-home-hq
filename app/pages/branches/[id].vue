@@ -312,7 +312,12 @@ const empCounts = computed(() => {
             <span class="ml-auto text-xs text-muted-foreground">{{ staff.length }}명</span>
           </div>
           <ul class="max-h-[460px] overflow-y-auto divide-y">
-            <li v-for="p in staff" :key="p.id" class="px-5 py-2.5 flex items-center gap-3 hover:bg-muted/30">
+            <li
+              v-for="p in staff"
+              :key="p.id"
+              class="px-5 py-2.5 flex items-center gap-3 hover:bg-muted/30 cursor-pointer transition-colors"
+              @click="navigateTo(`/staff/${p.id}`)"
+            >
               <div class="h-8 w-8 rounded-full bg-gradient-to-br from-primary/70 to-primary/40 text-primary-foreground flex items-center justify-center text-xs font-semibold flex-shrink-0">
                 {{ p.full_name.charAt(0) }}
               </div>
