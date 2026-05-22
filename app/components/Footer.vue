@@ -11,8 +11,6 @@ import { Heart } from "@lucide/vue";
         <span class="opacity-70">— 요양원 본부 통합관리</span>
       </div>
       <div class="flex items-center gap-4">
-        <NuxtLink to="/settings" class="hover:text-foreground">설정</NuxtLink>
-        <a href="https://care.minhojan-world.site" target="_blank" rel="noopener" class="hover:text-foreground">API</a>
         <span>All rights reserved.</span>
       </div>
     </div>
