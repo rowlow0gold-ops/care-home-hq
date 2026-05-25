@@ -208,9 +208,9 @@ const kpis = computed(() => {
       label: `${sinceLabel.value} 사고/이상징후`,
       value: fmtNum(t.incidents_7d),
       icon: AlertCircle,
-      bg: t.incidents_7d > 5 ? "bg-destructive/10" : "bg-amber-100 dark:bg-amber-900/30",
-      iconColor: t.incidents_7d > 5 ? "text-destructive" : "text-amber-700 dark:text-amber-300",
-      isWarning: t.incidents_7d > 5,
+      bg: "bg-muted/40 dark:bg-muted/30",
+      iconColor: "text-foreground",
+      isWarning: false,
       href: {
         path: "/care",
         query: {
@@ -224,9 +224,8 @@ const kpis = computed(() => {
     },
     {
       key: "residents",
-      label: "어르신 총원",
-      // e.g. "132 / 150" (current / capacity)
-      value: `${fmtNum(t.residents_current)} / ${fmtNum(t.residents_capacity)}`,
+      label: "어르신 수",
+      value: fmtNum(t.residents_current),
       icon: Users,
       bg: "bg-primary/10",
       iconColor: "text-primary",
@@ -619,20 +618,17 @@ const tablePageEnd = computed(() =>
             </td>
             <td class="py-3 px-3 text-right tabular-nums">
               <span v-if="b.services.includes('day_care')">
-                {{ b.daycare_current_users }} <span class="text-muted-foreground">/ {{ b.daycare_capacity }}</span>
+                {{ b.daycare_current_users ?? 0 }} <span class="text-muted-foreground">/ {{ b.daycare_capacity ?? 0 }}</span>
               </span>
               <span v-else class="text-muted-foreground">—</span>
             </td>
             <td class="py-3 px-3 text-right tabular-nums">
               <span v-if="b.services.includes('visiting_care')">
-                {{ b.home_visit_recipients }} <span class="text-muted-foreground">/ {{ b.home_visit_capacity }}</span>
+                {{ b.home_visit_recipients ?? 0 }} <span class="text-muted-foreground">/ {{ b.home_visit_capacity ?? 0 }}</span>
               </span>
               <span v-else class="text-muted-foreground">—</span>
             </td>
-            <td
-              class="py-3 px-3 text-right tabular-nums"
-              :class="b.incidents_7d > 3 ? 'text-destructive font-medium' : 'text-muted-foreground'"
-            >
+            <td class="py-3 px-3 text-right tabular-nums text-foreground">
               {{ b.incidents_7d }}
             </td>
             <td class="py-3 px-6 text-right tabular-nums">{{ b.staff_on_duty }}</td>
