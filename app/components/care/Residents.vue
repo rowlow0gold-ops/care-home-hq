@@ -120,9 +120,6 @@ function age(birth: string) {
 
 <template>
   <div>
-    <p class="text-sm text-muted-foreground mb-4">
-      전 지점 입소자 명단. 서버에서 페이지 단위로 불러옵니다.
-    </p>
     <div class="rounded-xl border bg-card overflow-hidden">
       <!-- Filter bar -->
       <div class="px-6 py-4 border-b flex flex-wrap gap-3 items-center">

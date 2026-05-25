@@ -16,8 +16,8 @@ const route = useRoute();
 // 케어 관리 hosts the 어르신 / 케어 기록 / 투약 tabs in one place.
 const nav = computed(() => [
   { to: "/", label: "대시보드", icon: LayoutDashboard, minRole: 1 },
-  { to: "/care", label: "케어 관리", icon: HeartPulse, minRole: 1 },
   { to: "/staff", label: "직원 관리", icon: UsersRound, minRole: 3 },
+  { to: "/care", label: "케어 관리", icon: HeartPulse, minRole: 1 },
   { to: "/org", label: "조직도", icon: Network, minRole: 2 },
   { to: "/reports", label: "보고서", icon: FileBarChart, minRole: 3 },
   { to: "/settings", label: "설정", icon: Settings, minRole: 3 },
