@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import {
-  Users, AlertCircle, ClipboardList, UserCheck, Wallet, Building2, Filter,
+  Users, AlertCircle, UserCheck, Wallet, Building2, Filter,
   ChevronLeft, ChevronRight, ChevronRight as ChevRight,
   TrendingUp, BarChart3,
 } from "@lucide/vue";
@@ -31,7 +31,9 @@ interface DashboardSummary {
     services: string[];
     residential_capacity: number;
     daycare_capacity: number;
+    daycare_current_users: number;
     home_visit_recipients: number;
+    home_visit_capacity: number;
     current_caregivers: number;
     current_nurses: number;
     required_caregivers: number;
@@ -188,13 +190,13 @@ const visibleBranches = computed(() => {
 // `data.value.branches[*]` which is already window-scoped server-side.
 const filteredTotals = computed(() => {
   const bs = visibleBranches.value;
+  // Only count residential capacity for branches that actually offer 요양원.
+  const residentialBranches = bs.filter((b) => b.services.includes("nursing_home"));
   return {
-    residents: bs.reduce((acc, b) => acc + b.resident_count, 0),
+    residents_current:  residentialBranches.reduce((acc, b) => acc + b.resident_count, 0),
+    residents_capacity: residentialBranches.reduce((acc, b) => acc + b.residential_capacity, 0),
     incidents_7d: bs.reduce((acc, b) => acc + b.incidents_7d, 0),
-    staff_total: bs.reduce((acc, b) => acc + b.staff_on_duty, 0),
-    // Server's totals.open_care_logs is also window-scoped; when a single
-    // branch is selected we don't have a per-branch breakdown so suppress.
-    open_care_logs: branchFilter.value ? null : (data.value?.totals.open_care_logs ?? 0),
+    staff_total:  bs.reduce((acc, b) => acc + b.staff_on_duty, 0),
   };
 });
 
@@ -204,7 +206,7 @@ const kpis = computed(() => {
     {
       key: "incidents",
       label: `${sinceLabel.value} 사고/이상징후`,
-      value: t.incidents_7d,
+      value: fmtNum(t.incidents_7d),
       icon: AlertCircle,
       bg: t.incidents_7d > 5 ? "bg-destructive/10" : "bg-amber-100 dark:bg-amber-900/30",
       iconColor: t.incidents_7d > 5 ? "text-destructive" : "text-amber-700 dark:text-amber-300",
@@ -222,11 +224,13 @@ const kpis = computed(() => {
     },
     {
       key: "residents",
-      label: `${sinceLabel.value} 입소 어르신`,
-      value: t.residents,
+      label: "어르신 총원",
+      // e.g. "132 / 150" (current / capacity)
+      value: `${fmtNum(t.residents_current)} / ${fmtNum(t.residents_capacity)}`,
       icon: Users,
       bg: "bg-primary/10",
       iconColor: "text-primary",
+      isWarning: false,
       href: {
         path: "/care",
         query: {
@@ -237,29 +241,14 @@ const kpis = computed(() => {
     {
       key: "staff",
       label: `${sinceLabel.value} 재직 직원`,
-      value: t.staff_total,
+      value: fmtNum(t.staff_total),
       icon: UserCheck,
       bg: "bg-blue-100 dark:bg-blue-900/30",
       iconColor: "text-blue-600 dark:text-blue-300",
+      isWarning: false,
       href: {
         path: "/staff",
         query: {
-          ...(branchFilter.value ? { branch: branchFilter.value } : {}),
-        },
-      },
-    },
-    {
-      key: "open_care_logs",
-      label: `${sinceLabel.value} 확인 필요 케어 기록`,
-      value: t.open_care_logs,
-      icon: ClipboardList,
-      bg: "bg-violet-100 dark:bg-violet-900/30",
-      iconColor: "text-violet-600 dark:text-violet-300",
-      href: {
-        path: "/care",
-        query: {
-          tab: "care-logs",
-          flagged: "true",
           ...(branchFilter.value ? { branch: branchFilter.value } : {}),
         },
       },
@@ -487,7 +476,7 @@ const tablePageEnd = computed(() =>
     </div>
 
     <!-- KPI cards (clickable → detail pages) -->
-    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
       <NuxtLink
         v-for="k in kpis"
         :key="k.key"
@@ -505,7 +494,7 @@ const tablePageEnd = computed(() =>
               :class="k.isWarning ? 'text-destructive' : ''"
             >
               <Skeleton v-if="pending && !data" w="3rem" h="1.875rem" />
-              <template v-else>{{ fmtNum(k.value) }}</template>
+              <template v-else>{{ k.value }}</template>
             </p>
           </div>
           <div
@@ -586,8 +575,8 @@ const tablePageEnd = computed(() =>
             <th class="py-3 px-6 font-medium">지점</th>
             <th class="py-3 px-3 font-medium text-right">최근 청구</th>
             <th class="py-3 px-3 font-medium text-right" title="요양원 입소 (현원/정원)">요양 (현원/정원)</th>
-            <th class="py-3 px-3 font-medium text-right" title="주간보호센터 정원">주간 정원</th>
-            <th class="py-3 px-3 font-medium text-right" title="방문요양 이용자">방문 이용자</th>
+            <th class="py-3 px-3 font-medium text-right" title="주간보호센터 (현원/정원)">주간 (현원/정원)</th>
+            <th class="py-3 px-3 font-medium text-right" title="방문요양 (이용자/정원)">방문 (현원/정원)</th>
             <th class="py-3 px-3 font-medium text-right">{{ sinceLabel }} 사고</th>
             <th class="py-3 px-6 font-medium text-right">전체 직원</th>
           </tr>
@@ -630,13 +619,13 @@ const tablePageEnd = computed(() =>
             </td>
             <td class="py-3 px-3 text-right tabular-nums">
               <span v-if="b.services.includes('day_care')">
-                {{ b.daycare_capacity }}<span class="text-muted-foreground">명</span>
+                {{ b.daycare_current_users }} <span class="text-muted-foreground">/ {{ b.daycare_capacity }}</span>
               </span>
               <span v-else class="text-muted-foreground">—</span>
             </td>
             <td class="py-3 px-3 text-right tabular-nums">
               <span v-if="b.services.includes('visiting_care')">
-                {{ b.home_visit_recipients }}<span class="text-muted-foreground">명</span>
+                {{ b.home_visit_recipients }} <span class="text-muted-foreground">/ {{ b.home_visit_capacity }}</span>
               </span>
               <span v-else class="text-muted-foreground">—</span>
             </td>
