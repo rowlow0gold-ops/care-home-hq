@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { CheckCircle2, AlertCircle, Loader2, Download } from "@lucide/vue";
+import { CheckCircle2, AlertCircle, Loader2, Download, Search } from "@lucide/vue";
 
 useHead({ title: "보고서 · 케어닥 HQ" });
 
@@ -31,10 +31,20 @@ const { data: runs } = await useAsyncData("billing-runs", () =>
   api.get<BillingRun[]>("/v1/billing/runs"),
 );
 
-// Filters for the history list
+// Draft filters (committed only when 검색 is clicked)
 const filterBranch = ref<string>(useDefaultBranch());
 const filterStatus = ref<string>("");
 const filterYearMonth = ref<string>("");
+// Applied filters
+const appliedBranch = ref(filterBranch.value);
+const appliedStatus = ref(filterStatus.value);
+const appliedYearMonth = ref(filterYearMonth.value);
+
+function applyFilters() {
+  appliedBranch.value = filterBranch.value;
+  appliedStatus.value = filterStatus.value;
+  appliedYearMonth.value = filterYearMonth.value;
+}
 
 const branchById = computed(() => {
   const m = new Map<string, string>();
@@ -44,9 +54,9 @@ const branchById = computed(() => {
 
 const filteredRuns = computed(() => {
   let arr = runs.value ?? [];
-  if (filterBranch.value) arr = arr.filter((r) => r.branch_id === filterBranch.value);
-  if (filterStatus.value) arr = arr.filter((r) => r.status === filterStatus.value);
-  if (filterYearMonth.value) arr = arr.filter((r) => r.year_month.startsWith(filterYearMonth.value));
+  if (appliedBranch.value) arr = arr.filter((r) => r.branch_id === appliedBranch.value);
+  if (appliedStatus.value) arr = arr.filter((r) => r.status === appliedStatus.value);
+  if (appliedYearMonth.value) arr = arr.filter((r) => r.year_month.startsWith(appliedYearMonth.value));
   return arr;
 });
 
@@ -158,6 +168,15 @@ const statusLabel: Record<BillingRun["status"], string> = {
           <option value="queued">대기</option>
           <option value="failed">실패</option>
         </select>
+        <button
+          type="button"
+          @click="applyFilters"
+          aria-label="검색"
+          title="검색"
+          class="h-9 w-9 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center"
+        >
+          <Search class="h-3.5 w-3.5" />
+        </button>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
           {{ filteredRuns.length }}건 / {{ (runs ?? []).length }}건
         </div>
@@ -210,7 +229,7 @@ const statusLabel: Record<BillingRun["status"], string> = {
           </tr>
           <tr v-if="filteredRuns.length === 0">
             <td colspan="7" class="py-12 text-center text-muted-foreground">
-              {{ filterBranch || filterStatus || filterYearMonth ? "조건에 맞는 결과가 없습니다." : "청구 이력이 없습니다. 데스크톱 앱에서 첫 청구서를 생성하세요." }}
+              {{ appliedBranch || appliedStatus || appliedYearMonth ? "조건에 맞는 결과가 없습니다." : "청구 이력이 없습니다. 데스크톱 앱에서 첫 청구서를 생성하세요." }}
             </td>
           </tr>
         </tbody>

@@ -22,11 +22,11 @@ const hqAccount = { email: "hq@demo.com", label: "본사 관리자", icon: Shiel
 // + home visit only). Search + scroll keep the panel usable at this density.
 const branches = [
   // ---- Hubs (residential + day care + home visit) ----
-  { slug: "gangnam",      name: "강남센터",      email: "manager.gangnam@demo.com",      type: "hub" as const },
-  { slug: "songpa",       name: "송파센터",      email: "manager.songpa@demo.com",       type: "hub" as const },
-  { slug: "mapo",         name: "마포센터",      email: "manager.mapo@demo.com",         type: "hub" as const },
-  { slug: "yeongdeungpo", name: "영등포센터",    email: "manager.yeongdeungpo@demo.com", type: "hub" as const },
-  { slug: "bundang",      name: "분당센터",      email: "manager.bundang@demo.com",      type: "hub" as const },
+  { slug: "gangnam",      name: "강남광역센터",      email: "manager.gangnam@demo.com",      type: "hub" as const },
+  { slug: "songpa",       name: "송파광역센터",      email: "manager.songpa@demo.com",       type: "hub" as const },
+  { slug: "mapo",         name: "마포광역센터",      email: "manager.mapo@demo.com",         type: "hub" as const },
+  { slug: "yeongdeungpo", name: "영등포광역센터",    email: "manager.yeongdeungpo@demo.com", type: "hub" as const },
+  { slug: "bundang",      name: "분당광역센터",      email: "manager.bundang@demo.com",      type: "hub" as const },
   // ---- Satellites (day care + home visit only) ----
   { slug: "gangdong",   name: "강동센터",   email: "manager.gangdong@demo.com",   type: "satellite" as const },
   { slug: "gangbuk",    name: "강북센터",   email: "manager.gangbuk@demo.com",    type: "satellite" as const },
@@ -182,27 +182,29 @@ async function onSubmit() {
         </div>
 
         <!-- HQ account -->
-        <button
-          type="button"
-          class="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors text-left mb-2 group"
-          @click="pick(hqAccount)"
-        >
-          <div class="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center flex-shrink-0">
-            <Shield class="h-4 w-4" />
-          </div>
-          <div class="flex-1 min-w-0">
-            <div class="text-sm font-medium">{{ hqAccount.label }}</div>
-            <div class="text-xs text-muted-foreground font-mono truncate">{{ hqAccount.email }}</div>
-          </div>
+        <div class="relative mb-2 group">
           <button
             type="button"
-            class="opacity-0 group-hover:opacity-100 transition-opacity h-7 w-7 rounded flex items-center justify-center hover:bg-foreground/10"
+            class="w-full flex items-center gap-3 px-3 py-2.5 pr-11 rounded-lg border border-primary/20 bg-primary/5 hover:bg-primary/10 transition-colors text-left"
+            @click="pick(hqAccount)"
+          >
+            <div class="h-8 w-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center flex-shrink-0">
+              <Shield class="h-4 w-4" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium">{{ hqAccount.label }}</div>
+              <div class="text-xs text-muted-foreground font-mono truncate">{{ hqAccount.email }}</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-7 w-7 rounded flex items-center justify-center hover:bg-foreground/10"
             :aria-label="`${hqAccount.email} 복사`"
             @click="copyEmail($event, hqAccount.email)"
           >
             <Copy class="h-3.5 w-3.5" />
           </button>
-        </button>
+        </div>
 
         <!-- Divider + search -->
         <div class="flex items-center justify-between mt-4 mb-2 px-1 gap-2">
@@ -221,51 +223,51 @@ async function onSubmit() {
         </div>
 
         <!-- Branch managers list — scrollable, single column to stay readable
-             even with hundreds of centers. -->
-        <div class="flex flex-col gap-1 max-h-[280px] overflow-y-auto pr-1 border-t border-b py-1.5">
-          <button
-            v-for="b in filteredBranches"
-            :key="b.slug"
-            type="button"
-            class="flex items-center gap-2.5 px-2.5 py-2 rounded-md border border-transparent hover:bg-muted hover:border-border transition-colors text-left group"
-            @click="pick({ email: b.email })"
-          >
-            <div
-              class="h-7 w-7 rounded-md flex items-center justify-center flex-shrink-0 transition-colors"
-              :class="b.type === 'hub'
-                ? 'bg-primary/15 text-primary'
-                : 'bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'"
-            >
-              <Building2 class="h-3.5 w-3.5" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <div class="flex items-center gap-1.5">
-                <span class="text-sm font-medium truncate">{{ b.name }}</span>
-                <span
-                  class="text-[9px] font-semibold uppercase tracking-wider rounded px-1 py-px"
+             even with hundreds of centers. Fixed height so the panel doesn't
+             jump as the filter narrows results. -->
+        <div class="h-[280px] overflow-y-auto pr-1 border-t border-b py-1.5">
+          <div v-if="filteredBranches.length === 0" class="text-center text-xs text-muted-foreground py-6">
+            검색 결과가 없습니다.
+          </div>
+          <div v-else class="flex flex-col gap-1">
+            <div v-for="b in filteredBranches" :key="b.slug" class="relative group">
+              <button
+                type="button"
+                class="w-full flex items-center gap-2.5 px-2.5 py-2 pr-9 rounded-md border border-transparent hover:bg-muted hover:border-border transition-colors text-left"
+                @click="pick({ email: b.email })"
+              >
+                <div
+                  class="h-7 w-7 rounded-md flex items-center justify-center flex-shrink-0 transition-colors"
                   :class="b.type === 'hub'
                     ? 'bg-primary/15 text-primary'
-                    : 'bg-muted text-muted-foreground'"
+                    : 'bg-muted text-muted-foreground group-hover:bg-primary/10 group-hover:text-primary'"
                 >
-                  {{ b.type === 'hub' ? 'Hub' : 'Sat' }}
-                </span>
-              </div>
-              <div class="text-[11px] text-muted-foreground font-mono truncate">{{ b.email }}</div>
+                  <Building2 class="h-3.5 w-3.5" />
+                </div>
+                <div class="flex-1 min-w-0">
+                  <div class="flex items-center gap-1.5">
+                    <span class="text-sm font-medium truncate">{{ b.name }}</span>
+                    <span
+                      class="text-[9px] font-semibold uppercase tracking-wider rounded px-1 py-px flex-shrink-0"
+                      :class="b.type === 'hub'
+                        ? 'bg-primary/15 text-primary'
+                        : 'bg-muted text-muted-foreground'"
+                    >
+                      {{ b.type === 'hub' ? 'Hub' : 'Sat' }}
+                    </span>
+                  </div>
+                  <div class="text-[11px] text-muted-foreground font-mono truncate">{{ b.email }}</div>
+                </div>
+              </button>
+              <button
+                type="button"
+                class="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-6 w-6 rounded flex items-center justify-center hover:bg-foreground/10"
+                :aria-label="`${b.email} 복사`"
+                @click="copyEmail($event, b.email)"
+              >
+                <Copy class="h-3 w-3" />
+              </button>
             </div>
-            <button
-              type="button"
-              class="opacity-0 group-hover:opacity-100 transition-opacity h-6 w-6 rounded flex items-center justify-center hover:bg-foreground/10"
-              :aria-label="`${b.email} 복사`"
-              @click="copyEmail($event, b.email)"
-            >
-              <Copy class="h-3 w-3" />
-            </button>
-          </button>
-          <div
-            v-if="filteredBranches.length === 0"
-            class="text-center text-xs text-muted-foreground py-6"
-          >
-            검색 결과가 없습니다.
           </div>
         </div>
 

@@ -1,65 +1,83 @@
 <script setup lang="ts">
-import { AlertTriangle, ClipboardList, Search } from "@lucide/vue";
+import { AlertTriangle, ClipboardList, Search, Loader2, ChevronLeft, ChevronRight } from "@lucide/vue";
 
 useHead({ title: "케어 기록 · 케어닥 HQ" });
 
-interface Resident { id: string; full_name: string; status: string; branch_id: string }
 interface Branch { id: string; name: string }
-interface CareLog {
+interface CareLogRow {
   id: string;
+  tenant_id: string;
+  branch_id: string;
+  branch_name: string | null;
   resident_id: string;
+  resident_name: string;
+  resident_room: string | null;
   recorded_by: string;
   recorded_at: string;
   category: string;
   body: string;
   flagged: boolean;
 }
+interface PagedCareLogs {
+  items: CareLogRow[];
+  total: number;
+  page: number;
+  page_size: number;
+}
 
 const api = useApi();
+const categories = ["식사", "투약", "배설", "위생", "활동", "이상징후", "기타"];
+
+// Draft filter values (committed only on 검색 click / Enter)
 const onlyFlagged = ref(false);
 const categoryFilter = ref<string>("");
 const branchFilter = ref<string>(useDefaultBranch());
 const q = ref("");
-const debouncedQ = refDebounced(q, 250);
-const categories = ["식사", "투약", "배설", "위생", "활동", "이상징후", "기타"];
 
-const [{ data: residents }, { data: dashboard }] = await Promise.all([
-  useAsyncData("care-log-residents", () => api.get<Resident[]>("/v1/residents")),
-  useAsyncData("care-log-branches", () => api.get<{ branches: Branch[] }>("/v1/dashboard/summary")),
-]);
+// Applied filter values drive the server fetch
+const appliedFlagged = ref(onlyFlagged.value);
+const appliedCategory = ref(categoryFilter.value);
+const appliedBranch = ref(branchFilter.value);
+const appliedQ = ref("");
 
-const { data: rawLogs, pending } = await useAsyncData("care-logs-all", async () => {
-  const rs = residents.value ?? [];
-  const results = await Promise.all(
-    rs.slice(0, 80).map((r) =>
-      api
-        .get<CareLog[]>(`/v1/residents/${r.id}/care-logs`)
-        .then((logs) => logs.map((l) => ({ ...l, _residentName: r.full_name, _branchId: r.branch_id })))
-        .catch(() => []),
-    ),
-  );
-  return results.flat();
-});
+const page = ref(1);
+const pageSize = ref(50);
 
-const branchById = computed(() => {
-  const m = new Map<string, string>();
-  for (const b of dashboard.value?.branches ?? []) m.set(b.id, b.name);
-  return m;
-});
+function applyFilters() {
+  appliedFlagged.value = onlyFlagged.value;
+  appliedCategory.value = categoryFilter.value;
+  appliedBranch.value = branchFilter.value;
+  appliedQ.value = q.value.trim();
+  page.value = 1;
+}
 
-const filtered = computed(() => {
-  let rows = (rawLogs.value ?? []) as Array<CareLog & { _residentName: string; _branchId: string }>;
-  if (onlyFlagged.value) rows = rows.filter((l) => l.flagged);
-  if (categoryFilter.value) rows = rows.filter((l) => l.category === categoryFilter.value);
-  if (branchFilter.value) rows = rows.filter((l) => l._branchId === branchFilter.value);
-  if (debouncedQ.value) {
-    const n = debouncedQ.value.toLowerCase();
-    rows = rows.filter(
-      (l) => l._residentName.toLowerCase().includes(n) || (l.body ?? "").toLowerCase().includes(n),
-    );
-  }
-  return rows.sort((a, b) => new Date(b.recorded_at).getTime() - new Date(a.recorded_at).getTime());
-});
+const { data: dashboard } = await useAsyncData("care-log-branches", () =>
+  api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
+);
+
+const { data: paged, pending, error, refresh } = await useAsyncData(
+  "care-logs-paged",
+  () =>
+    api.get<PagedCareLogs>("/v1/care-logs/paged", {
+      q: appliedQ.value || undefined,
+      branch_id: appliedBranch.value || undefined,
+      category: appliedCategory.value || undefined,
+      flagged_only: appliedFlagged.value || undefined,
+      page: page.value,
+      page_size: pageSize.value,
+    }),
+  { watch: [appliedQ, appliedBranch, appliedCategory, appliedFlagged, page, pageSize] },
+);
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil((paged.value?.total ?? 0) / pageSize.value)),
+);
+const showingFrom = computed(() =>
+  paged.value && paged.value.total > 0 ? (page.value - 1) * pageSize.value + 1 : 0,
+);
+const showingTo = computed(() =>
+  paged.value ? Math.min(page.value * pageSize.value, paged.value.total) : 0,
+);
 
 function fmtTime(iso: string) {
   return new Date(iso).toLocaleString("ko-KR", {
@@ -73,7 +91,7 @@ function fmtTime(iso: string) {
     <header class="mb-6">
       <h1 class="text-3xl font-bold tracking-tight">케어 기록</h1>
       <p class="text-sm text-muted-foreground mt-1">
-        전 지점 케어 기록 통합 피드. 이상징후로 표시된 항목은 상단에 강조 표시됩니다.
+        전 지점 케어 기록 통합 피드. 이상징후로 표시된 항목은 강조 표시됩니다.
       </p>
     </header>
 
@@ -85,6 +103,7 @@ function fmtTime(iso: string) {
             v-model="q"
             placeholder="어르신 이름 또는 내용 검색"
             class="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+            @keyup.enter="applyFilters"
           >
         </div>
         <select
@@ -105,16 +124,35 @@ function fmtTime(iso: string) {
           <input v-model="onlyFlagged" type="checkbox" class="rounded border-input">
           이상징후만
         </label>
+        <button
+          type="button"
+          @click="applyFilters"
+          :disabled="pending"
+          aria-label="검색"
+          title="검색"
+          class="h-10 w-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <Loader2 v-if="pending" class="h-4 w-4 animate-spin" />
+          <Search v-else class="h-4 w-4" />
+        </button>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
-          {{ filtered.length }}건
+          {{ showingFrom }}–{{ showingTo }} / {{ paged?.total ?? 0 }}건
         </div>
       </div>
 
-      <div v-if="pending" class="py-12 text-center text-sm text-muted-foreground">
+      <div v-if="pending && !paged" class="py-12 text-center text-sm text-muted-foreground">
         불러오는 중…
       </div>
-      <ul v-else-if="filtered.length" class="divide-y">
-        <li v-for="log in filtered.slice(0, 200)" :key="log.id" class="px-6 py-3 flex items-start gap-3 hover:bg-muted/30 transition-colors">
+      <div v-else-if="error" class="py-12 text-center text-sm text-destructive">
+        목록을 불러오지 못했습니다.
+        <button class="underline ml-2" @click="refresh()">다시 시도</button>
+      </div>
+      <ul v-else-if="(paged?.items?.length ?? 0) > 0" class="divide-y">
+        <li
+          v-for="log in paged?.items ?? []"
+          :key="log.id"
+          class="px-6 py-3 flex items-start gap-3 hover:bg-muted/30 transition-colors"
+        >
           <AlertTriangle
             v-if="log.flagged"
             class="h-4 w-4 text-destructive flex-shrink-0 mt-1"
@@ -122,8 +160,8 @@ function fmtTime(iso: string) {
           <ClipboardList v-else class="h-4 w-4 text-muted-foreground flex-shrink-0 mt-1" />
           <div class="flex-1 min-w-0">
             <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="font-medium text-sm">{{ log._residentName }}</span>
-              <span class="text-xs text-muted-foreground">· {{ branchById.get(log._branchId) }}</span>
+              <span class="font-medium text-sm">{{ log.resident_name }}</span>
+              <span v-if="log.branch_name" class="text-xs text-muted-foreground">· {{ log.branch_name }}</span>
               <span class="text-xs font-medium uppercase text-muted-foreground">{{ log.category }}</span>
               <span class="text-xs text-muted-foreground">{{ fmtTime(log.recorded_at) }}</span>
               <span
@@ -140,6 +178,41 @@ function fmtTime(iso: string) {
       <div v-else class="py-12 text-center text-sm text-muted-foreground">
         <ClipboardList class="h-10 w-10 mx-auto mb-3 opacity-30" />
         조건에 맞는 기록이 없습니다.
+      </div>
+
+      <!-- Pagination -->
+      <div
+        v-if="(paged?.total ?? 0) > 0"
+        class="px-6 py-3 border-t flex items-center justify-between text-sm"
+      >
+        <div class="text-xs text-muted-foreground">
+          페이지 {{ paged?.page ?? 1 }} / {{ totalPages }}
+        </div>
+        <div class="flex items-center gap-2">
+          <select
+            v-model.number="pageSize"
+            class="h-8 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary"
+          >
+            <option :value="25">25/page</option>
+            <option :value="50">50/page</option>
+            <option :value="100">100/page</option>
+            <option :value="200">200/page</option>
+          </select>
+          <button
+            class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="page <= 1"
+            @click="page--"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </button>
+          <button
+            class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="page >= totalPages"
+            @click="page++"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
       </div>
     </div>
   </div>

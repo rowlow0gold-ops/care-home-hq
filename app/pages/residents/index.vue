@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, MapPin, ChevronLeft, ChevronRight, ArrowUpDown } from "@lucide/vue";
+import { Search, MapPin, ChevronLeft, ChevronRight, ArrowUpDown, Loader2 } from "@lucide/vue";
 
 useHead({ title: "어르신 · 케어닥 HQ" });
 
@@ -19,18 +19,33 @@ interface PagedResidents { items: Resident[]; total: number; page: number; page_
 interface Branch { id: string; name: string }
 
 const api = useApi();
+// Draft filters (what the user is editing). Committed to `applied*` only when
+// 검색 is clicked (or Enter is pressed in the search input).
 const q = ref("");
-const debouncedQ = refDebounced(q, 300);
 const branchFilter = ref<string>(useDefaultBranch());
 const gradeFilter = ref<string>("");
 const statusFilter = ref<string>("active");
+// Applied filters — these drive the server-side fetch.
+const appliedQ = ref(q.value);
+const appliedBranch = ref(branchFilter.value);
+const appliedGrade = ref(gradeFilter.value);
+const appliedStatus = ref(statusFilter.value);
+
 const page = ref(1);
 const pageSize = ref(25);
 const sortBy = ref<"full_name" | "admitted_on" | "care_grade" | "room_number">("full_name");
 const sortDesc = ref(false);
 
-// Reset to page 1 when filters change
-watch([debouncedQ, branchFilter, gradeFilter, statusFilter, sortBy, sortDesc], () => { page.value = 1; });
+function applyFilters() {
+  appliedQ.value = q.value.trim();
+  appliedBranch.value = branchFilter.value;
+  appliedGrade.value = gradeFilter.value;
+  appliedStatus.value = statusFilter.value;
+  page.value = 1;
+}
+
+// Sort changes still reset to page 1 (they re-fetch immediately).
+watch([sortBy, sortDesc], () => { page.value = 1; });
 
 const { data: dashboard } = await useAsyncData("res-branches", () =>
   api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
@@ -39,16 +54,16 @@ const { data: dashboard } = await useAsyncData("res-branches", () =>
 const { data: paged, pending, error, refresh } = await useAsyncData(
   "residents-paged",
   () => api.get<PagedResidents>("/v1/residents/paged", {
-    q: debouncedQ.value || undefined,
-    branch_id: branchFilter.value || undefined,
-    care_grade: gradeFilter.value || undefined,
-    status: statusFilter.value || undefined,
+    q: appliedQ.value || undefined,
+    branch_id: appliedBranch.value || undefined,
+    care_grade: appliedGrade.value || undefined,
+    status: appliedStatus.value || undefined,
     page: page.value,
     page_size: pageSize.value,
     sort_by: sortBy.value,
     sort_desc: sortDesc.value,
   }),
-  { watch: [debouncedQ, branchFilter, gradeFilter, statusFilter, page, pageSize, sortBy, sortDesc] },
+  { watch: [appliedQ, appliedBranch, appliedGrade, appliedStatus, page, pageSize, sortBy, sortDesc] },
 );
 
 const branchById = computed(() => {
@@ -114,6 +129,7 @@ function age(birth: string) {
             v-model="q"
             placeholder="이름 또는 호실 검색"
             class="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+            @keyup.enter="applyFilters"
           >
         </div>
         <select
@@ -143,6 +159,17 @@ function age(birth: string) {
           <option value="discharged">퇴소</option>
           <option value="deceased">사망</option>
         </select>
+        <button
+          type="button"
+          @click="applyFilters"
+          :disabled="pending"
+          aria-label="검색"
+          title="검색"
+          class="h-10 w-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <Loader2 v-if="pending" class="h-4 w-4 animate-spin" />
+          <Search v-else class="h-4 w-4" />
+        </button>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
           {{ showingFrom }}–{{ showingTo }} / {{ paged?.total ?? 0 }}명
         </div>

@@ -63,10 +63,21 @@ interface Person {
   is_inactive: boolean;
 }
 
+// Draft filters
 const q = ref("");
-const debouncedQ = refDebounced(q, 250);
 const branchFilter = ref<string>(useDefaultBranch());
 const empFilter = ref<string>("");
+// Applied filters — drive `filtered` / `branchScoped`
+const appliedQ = ref("");
+const appliedBranch = ref(branchFilter.value);
+const appliedEmp = ref("");
+
+function applyFilters() {
+  appliedQ.value = q.value.trim();
+  appliedBranch.value = branchFilter.value;
+  appliedEmp.value = empFilter.value;
+  page.value = 1;
+}
 
 const { data: people, pending, error } = await useAsyncData(
   "staff-list",
@@ -77,21 +88,21 @@ const { data: people, pending, error } = await useAsyncData(
 // center is selected the counter reflects just that center, not the whole org.
 const branchScoped = computed(() => {
   const rows = people.value ?? [];
-  if (branchFilter.value === "__hq__") return rows.filter((p) => !p.branch_id);
-  if (branchFilter.value) return rows.filter((p) => p.branch_id === branchFilter.value);
+  if (appliedBranch.value === "__hq__") return rows.filter((p) => !p.branch_id);
+  if (appliedBranch.value) return rows.filter((p) => p.branch_id === appliedBranch.value);
   return rows;
 });
 
 const filtered = computed(() => {
   let rows = branchScoped.value;
-  if (empFilter.value) rows = rows.filter((p) => p.employment_type === empFilter.value);
-  if (debouncedQ.value) {
-    const n = debouncedQ.value.toLowerCase();
+  if (appliedEmp.value) rows = rows.filter((p) => p.employment_type === appliedEmp.value);
+  if (appliedQ.value) {
+    const n = appliedQ.value.toLowerCase();
     rows = rows.filter(
       (p) =>
         p.full_name.toLowerCase().includes(n) ||
         p.email.toLowerCase().includes(n) ||
-        p.position_ko.includes(debouncedQ.value),
+        p.position_ko.includes(appliedQ.value),
     );
   }
   return rows;
@@ -103,7 +114,7 @@ const pageSizeOptions = [10, 25, 50, 100];
 const totalPages = computed(() =>
   Math.max(1, Math.ceil(filtered.value.length / pageSize.value)),
 );
-watch([debouncedQ, branchFilter, empFilter, pageSize], () => { page.value = 1; });
+watch([pageSize], () => { page.value = 1; });
 watch(totalPages, (n) => { if (page.value > n) page.value = n; });
 const paged = computed(() => {
   const start = (page.value - 1) * pageSize.value;
@@ -236,26 +247,37 @@ interface LeaveRequest {
   decided_by_name: string | null;
 }
 
+// Draft filters for 휴가 tab
 const leaveStatus = ref<string>("pending");
 const leaveBranch = ref<string>(useDefaultBranch());
 const leaveQ = ref("");
-const debouncedLeaveQ = refDebounced(leaveQ, 250);
+// Applied
+const appliedLeaveStatus = ref(leaveStatus.value);
+const appliedLeaveBranch = ref(leaveBranch.value);
+const appliedLeaveQ = ref("");
+
+function applyLeaveFilters() {
+  appliedLeaveStatus.value = leaveStatus.value;
+  appliedLeaveBranch.value = leaveBranch.value;
+  appliedLeaveQ.value = leaveQ.value.trim();
+  leavePage.value = 1;
+}
 
 const { data: leaveRows } = await useAsyncData(
   "staff-leave-requests",
   () =>
     api.get<LeaveRequest[]>("/v1/leave-requests", {
-      status: leaveStatus.value || undefined,
+      status: appliedLeaveStatus.value || undefined,
     }),
-  { watch: [leaveStatus] },
+  { watch: [appliedLeaveStatus] },
 );
 
 const leaveFiltered = computed(() => {
   let r = leaveRows.value ?? [];
-  if (leaveBranch.value === "__hq__") r = r.filter((x) => !x.branch_id);
-  else if (leaveBranch.value) r = r.filter((x) => x.branch_id === leaveBranch.value);
-  if (debouncedLeaveQ.value) {
-    const n = debouncedLeaveQ.value.toLowerCase();
+  if (appliedLeaveBranch.value === "__hq__") r = r.filter((x) => !x.branch_id);
+  else if (appliedLeaveBranch.value) r = r.filter((x) => x.branch_id === appliedLeaveBranch.value);
+  if (appliedLeaveQ.value) {
+    const n = appliedLeaveQ.value.toLowerCase();
     r = r.filter(
       (x) => x.user_name.toLowerCase().includes(n) || (x.reason ?? "").toLowerCase().includes(n),
     );
@@ -269,7 +291,7 @@ const leavePage = ref(1);
 const leaveTotalPages = computed(() =>
   Math.max(1, Math.ceil(leaveFiltered.value.length / leavePageSize.value)),
 );
-watch([leaveStatus, leaveBranch, debouncedLeaveQ, leavePageSize], () => {
+watch([leavePageSize], () => {
   leavePage.value = 1;
 });
 watch(leaveTotalPages, (n) => { if (leavePage.value > n) leavePage.value = n; });
@@ -357,6 +379,7 @@ function fmtDate(iso: string) {
             v-model="q"
             placeholder="이름 / 이메일 / 직책 검색"
             class="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+            @keyup.enter="applyFilters"
           >
         </div>
         <select
@@ -378,6 +401,17 @@ function fmtDate(iso: string) {
           <option value="arbeit">아르바이트</option>
           <option value="consultant">위촉직</option>
         </select>
+        <button
+          type="button"
+          @click="applyFilters"
+          :disabled="pending"
+          aria-label="검색"
+          title="검색"
+          class="h-10 w-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center disabled:opacity-60 disabled:cursor-not-allowed"
+        >
+          <Loader2 v-if="pending" class="h-4 w-4 animate-spin" />
+          <Search v-else class="h-4 w-4" />
+        </button>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
           {{ filtered.length }}명
         </div>
@@ -584,6 +618,7 @@ function fmtDate(iso: string) {
             v-model="leaveQ"
             placeholder="이름 / 사유 검색"
             class="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+            @keyup.enter="applyLeaveFilters"
           >
         </div>
         <select
@@ -603,6 +638,15 @@ function fmtDate(iso: string) {
           <option value="__hq__">본사만</option>
           <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
         </select>
+        <button
+          type="button"
+          @click="applyLeaveFilters"
+          aria-label="검색"
+          title="검색"
+          class="h-10 w-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center"
+        >
+          <Search class="h-4 w-4" />
+        </button>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
           {{ leaveFiltered.length }} / {{ (leaveRows ?? []).length }}건
         </div>
