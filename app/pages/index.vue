@@ -40,14 +40,6 @@ interface DashboardSummary {
 
 const api = useApi();
 
-interface BillingRun {
-  id: string;
-  branch_id: string;
-  year_month: string;
-  status: string;
-  total_amount: number | null;
-}
-
 // ----- Top-level filters: branch + date ----------------------------------
 const { me } = useAuth();
 const initialBranch =
@@ -95,35 +87,38 @@ const sinceLabel = computed(() => {
   return "전체 기간";
 });
 
-const [{ data, pending, error }, { data: runs }] = await Promise.all([
-  useAsyncData(
-    "dashboard",
-    () => api.get<DashboardSummary>("/v1/dashboard/summary", {
-      since: dateRange.value.since,
-      until: dateRange.value.until,
-    }),
-    // Watch the source refs directly. Watching the `dateRange` computed alone
-    // didn't pick up child mutations reliably across all browsers.
-    { watch: [dateScope, selectedMonth, selectedYear] },
-  ),
-  useAsyncData("billing-runs", () => api.get<BillingRun[]>("/v1/billing/runs")),
-]);
-
-// ----- 청구 매출 (respects top-level branch filter; no in-card controls) -
-const completedRuns = computed(() =>
-  (runs.value ?? []).filter((r) => r.status === "completed"),
+const { data, pending, error } = await useAsyncData(
+  "dashboard",
+  () => api.get<DashboardSummary>("/v1/dashboard/summary", {
+    since: dateRange.value.since,
+    until: dateRange.value.until,
+  }),
+  // Watch the source refs directly — the computed dateRange doesn't always
+  // trigger reliably across browsers.
+  { watch: [dateScope, selectedMonth, selectedYear] },
 );
 
-const filteredBilling = computed(() => {
-  let rows = completedRuns.value;
-  if (branchFilter.value) rows = rows.filter((r) => r.branch_id === branchFilter.value);
-  return rows;
+// ----- 청구 매출 — derived from the (already window-scoped) summary -------
+// The backend now returns per-branch last_billing_amount = SUM of completed
+// runs in the active window, and money.last_month_total_krw = the across-all
+// sum. So when a branch is selected we just use that branch's value;
+// otherwise we use the global total.
+const billingTotal = computed(() => {
+  if (branchFilter.value) {
+    const b = data.value?.branches?.find((x) => x.id === branchFilter.value);
+    return b?.last_billing_amount ?? 0;
+  }
+  return data.value?.money.last_month_total_krw ?? 0;
 });
-
-const billingTotal = computed(() =>
-  filteredBilling.value.reduce((acc, r) => acc + (r.total_amount ?? 0), 0),
-);
-const billingCount = computed(() => filteredBilling.value.length);
+const billingCount = computed(() => {
+  if (branchFilter.value) {
+    // 1 run per month per branch in the seed; backend doesn't return a
+    // per-branch count, but it's also not interesting at the single-branch
+    // level — show "—" rather than a misleading number.
+    return null;
+  }
+  return data.value?.money.completed_runs ?? 0;
+});
 
 function fmtKRWFull(n: number | null) {
   if (n === null || n === undefined) return "—";
@@ -150,14 +145,16 @@ const visibleBranches = computed(() => {
   return all.filter((b) => b.id === branchFilter.value);
 });
 
-// KPI totals reflect the branch filter
+// KPI totals reflect the branch + date filter. All values come from
+// `data.value.branches[*]` which is already window-scoped server-side.
 const filteredTotals = computed(() => {
   const bs = visibleBranches.value;
   return {
     residents: bs.reduce((acc, b) => acc + b.resident_count, 0),
     incidents_7d: bs.reduce((acc, b) => acc + b.incidents_7d, 0),
     staff_total: bs.reduce((acc, b) => acc + b.staff_on_duty, 0),
-    // tenant-wide value only meaningful when no branch filter
+    // Server's totals.open_care_logs is also window-scoped; when a single
+    // branch is selected we don't have a per-branch breakdown so suppress.
     open_care_logs: branchFilter.value ? null : (data.value?.totals.open_care_logs ?? 0),
   };
 });
@@ -186,7 +183,7 @@ const kpis = computed(() => {
     },
     {
       key: "residents",
-      label: "입소 어르신",
+      label: `${sinceLabel.value} 입소 어르신`,
       value: t.residents,
       icon: Users,
       bg: "bg-primary/10",
@@ -200,7 +197,7 @@ const kpis = computed(() => {
     },
     {
       key: "staff",
-      label: "전체 직원",
+      label: `${sinceLabel.value} 재직 직원`,
       value: t.staff_total,
       icon: UserCheck,
       bg: "bg-blue-100 dark:bg-blue-900/30",
@@ -214,7 +211,7 @@ const kpis = computed(() => {
     },
     {
       key: "open_care_logs",
-      label: "확인 필요 케어 기록",
+      label: `${sinceLabel.value} 확인 필요 케어 기록`,
       value: t.open_care_logs,
       icon: ClipboardList,
       bg: "bg-violet-100 dark:bg-violet-900/30",
@@ -312,7 +309,7 @@ const tablePageEnd = computed(() =>
         <div class="flex-1 min-w-[260px]">
           <div class="flex items-center gap-2 text-sm text-muted-foreground">
             <Wallet class="h-4 w-4 text-primary" />
-            <span>청구 매출 합계 · <strong class="text-foreground">전체 기간</strong></span>
+            <span>청구 매출 합계 · <strong class="text-foreground">{{ sinceLabel }}</strong></span>
           </div>
           <div v-if="pending && !data" class="mt-2">
             <Skeleton w="14rem" h="2.5rem" />
@@ -322,9 +319,11 @@ const tablePageEnd = computed(() =>
           </div>
           <div class="text-xs text-muted-foreground mt-1">
             <span v-if="branchFilter">
-              {{ data?.branches?.find((b) => b.id === branchFilter)?.name ?? "—" }} ·
+              {{ data?.branches?.find((b) => b.id === branchFilter)?.name ?? "—" }}
             </span>
-            완료된 청구 {{ billingCount }}건
+            <span v-else-if="billingCount !== null">
+              완료된 청구 {{ billingCount }}건
+            </span>
           </div>
         </div>
       </div>
