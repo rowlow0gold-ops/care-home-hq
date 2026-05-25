@@ -13,6 +13,7 @@ import {
   MapPin,
   UserCheck,
   Loader2,
+  Wallet,
 } from "@lucide/vue";
 
 useHead({ title: "직원 관리 · 케어닥 HQ" });
@@ -252,6 +253,65 @@ interface LeaveRequest {
   decided_at: string | null;
   decided_by_name: string | null;
 }
+
+// =============================================================================
+// 잔여 연차 (vacation balance summary) — top of the 휴가 tab
+// =============================================================================
+// In Korea, unused annual leave at year end has to be paid out as 연차수당
+// (cash). So this view is essentially the boss's payroll-liability dashboard.
+//
+// PAYOUT_PER_DAY_KRW is a rough average daily wage for the visualization;
+// we don't have per-staff salary data on the API yet.
+const PAYOUT_PER_DAY_KRW = 130_000;
+
+interface StaffBalance {
+  user_id: string;
+  user_name: string;
+  branch_id: string | null;
+  branch_name: string | null;
+  position_ko: string | null;
+  year: number;
+  annual_allocated: number;
+  annual_used: number;
+  annual_remaining: number;
+}
+
+const { data: balanceRows, pending: balancesPending } = await useAsyncData(
+  "staff-leave-balances",
+  () => api.get<StaffBalance[]>("/v1/leave-requests/balances")
+          .then((rows) => rows ?? [])
+          .catch(() => [] as StaffBalance[]),
+);
+
+const totalRemainingDays = computed(() =>
+  (balanceRows.value ?? []).reduce((acc, b) => acc + (b.annual_remaining ?? 0), 0),
+);
+const estimatedPayoutKRW = computed(() =>
+  Math.round(totalRemainingDays.value * PAYOUT_PER_DAY_KRW),
+);
+
+const balancesPageSize = 25;
+const balancesPage = ref(1);
+const balancesTotalPages = computed(() =>
+  Math.max(1, Math.ceil((balanceRows.value?.length ?? 0) / balancesPageSize)),
+);
+const pagedBalances = computed(() => {
+  const all = balanceRows.value ?? [];
+  const start = (balancesPage.value - 1) * balancesPageSize;
+  return all.slice(start, start + balancesPageSize);
+});
+const balancesPageStart = computed(() =>
+  (balanceRows.value?.length ?? 0) === 0
+    ? 0
+    : (balancesPage.value - 1) * balancesPageSize + 1,
+);
+const balancesPageEnd = computed(() =>
+  Math.min(balancesPage.value * balancesPageSize, balanceRows.value?.length ?? 0),
+);
+
+// =============================================================================
+// Draft filters for 휴가 신청 내역 (existing)
+// =============================================================================
 
 // Draft filters for 휴가 tab
 const leaveStatus = ref<string>("pending");
@@ -614,9 +674,98 @@ function fmtDate(iso: string) {
     </div>
 
     <!-- ================================================================ -->
-    <!-- TAB: 휴가 (read-only)                                             -->
+    <!-- TAB: 휴가 (잔여 연차 + 신청 내역)                                  -->
     <!-- ================================================================ -->
-    <div v-else class="rounded-xl border bg-card overflow-hidden">
+    <template v-else>
+    <!-- 잔여 연차 (벌써 돈) — top-of-page summary -->
+    <div class="rounded-xl border bg-card overflow-hidden mb-4">
+      <div class="px-6 py-4 border-b flex items-end justify-between gap-4 flex-wrap">
+        <div>
+          <h2 class="text-base font-semibold flex items-center gap-2">
+            <Wallet class="h-4 w-4 text-primary" />
+            잔여 연차
+          </h2>
+          <p class="text-xs text-muted-foreground mt-0.5">
+            연말까지 미사용 시 <strong class="text-foreground">연차수당</strong>으로 지급됩니다. 사실상 회사의 현금 부채.
+          </p>
+        </div>
+        <div class="flex items-center gap-4 text-xs">
+          <div class="text-center">
+            <div class="text-muted-foreground">총 잔여</div>
+            <div class="text-2xl font-bold tabular-nums text-primary">{{ totalRemainingDays.toFixed(1) }}일</div>
+          </div>
+          <div class="text-center">
+            <div class="text-muted-foreground">추정 연차수당</div>
+            <div class="text-2xl font-bold tabular-nums text-primary">
+              ₩{{ estimatedPayoutKRW.toLocaleString("ko-KR") }}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="balancesPending" class="py-8 text-center text-sm text-muted-foreground">불러오는 중…</div>
+      <div v-else-if="balanceRows.length === 0" class="py-8 text-center text-sm text-muted-foreground">
+        조회 가능한 직원이 없습니다.
+      </div>
+      <table v-else class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-muted-foreground bg-muted/30">
+            <th class="py-3 px-6 font-medium">이름</th>
+            <th class="py-3 px-3 font-medium">소속</th>
+            <th class="py-3 px-3 font-medium">직책</th>
+            <th class="py-3 px-3 font-medium text-right">부여</th>
+            <th class="py-3 px-3 font-medium text-right">사용</th>
+            <th class="py-3 px-6 font-medium text-right">잔여 (≈ 연차수당)</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="b in pagedBalances"
+            :key="b.user_id"
+            class="border-t hover:bg-muted/30"
+          >
+            <td class="py-3 px-6 font-medium">{{ b.user_name }}</td>
+            <td class="py-3 px-3 text-xs text-muted-foreground">{{ b.branch_name ?? "본사" }}</td>
+            <td class="py-3 px-3 text-xs text-muted-foreground">{{ b.position_ko ?? "—" }}</td>
+            <td class="py-3 px-3 text-right tabular-nums">{{ b.annual_allocated.toFixed(1) }}일</td>
+            <td class="py-3 px-3 text-right tabular-nums text-muted-foreground">{{ b.annual_used.toFixed(1) }}일</td>
+            <td class="py-3 px-6 text-right">
+              <div class="font-semibold tabular-nums" :class="b.annual_remaining > 10 ? 'text-amber-600 dark:text-amber-400' : ''">
+                {{ b.annual_remaining.toFixed(1) }}일
+              </div>
+              <div class="text-[11px] text-muted-foreground tabular-nums">
+                ≈ ₩{{ Math.round(b.annual_remaining * PAYOUT_PER_DAY_KRW).toLocaleString("ko-KR") }}
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- Pagination for balances -->
+      <div v-if="balanceRows.length > balancesPageSize" class="px-6 py-3 border-t flex items-center justify-between text-xs">
+        <div class="text-muted-foreground tabular-nums">
+          {{ balancesPageStart }}–{{ balancesPageEnd }} / 총 {{ balanceRows.length }}명
+        </div>
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="h-7 w-7 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
+            :disabled="balancesPage <= 1"
+            @click="balancesPage--"
+          ><ChevronLeft class="h-3.5 w-3.5" /></button>
+          <span class="tabular-nums text-muted-foreground px-1">{{ balancesPage }} / {{ balancesTotalPages }}</span>
+          <button
+            type="button"
+            class="h-7 w-7 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
+            :disabled="balancesPage >= balancesTotalPages"
+            @click="balancesPage++"
+          ><ChevronRight class="h-3.5 w-3.5" /></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 휴가 신청 내역 (existing) -->
+    <div class="rounded-xl border bg-card overflow-hidden">
       <div class="px-6 py-4 border-b flex flex-wrap items-center gap-3">
         <div class="relative flex-1 min-w-[200px] max-w-sm">
           <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -747,5 +896,6 @@ function fmtDate(iso: string) {
         </div>
       </div>
     </div>
+    </template>
   </div>
 </template>
