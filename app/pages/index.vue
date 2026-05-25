@@ -112,7 +112,9 @@ const [{ data, pending, error }, { data: runs }] = await Promise.all([
       since: dateRange.value.since,
       until: dateRange.value.until,
     }),
-    { watch: [dateRange] },
+    // Watch the source refs directly. Watching the `dateRange` computed alone
+    // didn't pick up child mutations reliably across all browsers.
+    { watch: [dateScope, selectedMonth, selectedYear] },
   ),
   useAsyncData("billing-runs", () => api.get<BillingRun[]>("/v1/billing/runs")),
 ]);
@@ -395,9 +397,9 @@ const tablePageEnd = computed(() =>
           <tr class="text-left text-xs text-muted-foreground bg-muted/30">
             <th class="py-3 px-6 font-medium">지점</th>
             <th class="py-3 px-3 font-medium text-right">최근 청구</th>
-            <th class="py-3 px-3 font-medium text-right">입소</th>
-            <th class="py-3 px-3 font-medium text-right">주간</th>
-            <th class="py-3 px-3 font-medium text-right">방문</th>
+            <th class="py-3 px-3 font-medium text-right" title="요양원 입소 (현원/정원)">요양 (현원/정원)</th>
+            <th class="py-3 px-3 font-medium text-right" title="주간보호센터 정원">주간 정원</th>
+            <th class="py-3 px-3 font-medium text-right" title="방문요양 이용자">방문 이용자</th>
             <th class="py-3 px-3 font-medium text-right">{{ sinceLabel }} 사고</th>
             <th class="py-3 px-6 font-medium text-right">전체 직원</th>
           </tr>
@@ -434,20 +436,19 @@ const tablePageEnd = computed(() =>
             <td class="py-3 px-3 text-right tabular-nums font-medium">{{ fmtKRWFull(b.last_billing_amount) }}</td>
             <td class="py-3 px-3 text-right tabular-nums">
               <span v-if="b.services.includes('nursing_home')">
-                {{ b.resident_count }}
-                <span class="text-xs text-muted-foreground">/ {{ b.residential_capacity }}</span>
+                {{ b.resident_count }} <span class="text-muted-foreground">/ {{ b.residential_capacity }}</span>
               </span>
               <span v-else class="text-muted-foreground">—</span>
             </td>
             <td class="py-3 px-3 text-right tabular-nums">
-              <span v-if="b.services.includes('day_care')" class="text-muted-foreground">
-                정원 {{ b.daycare_capacity }}
+              <span v-if="b.services.includes('day_care')">
+                {{ b.daycare_capacity }}<span class="text-muted-foreground">명</span>
               </span>
               <span v-else class="text-muted-foreground">—</span>
             </td>
             <td class="py-3 px-3 text-right tabular-nums">
-              <span v-if="b.services.includes('visiting_care')" class="text-muted-foreground">
-                {{ b.home_visit_recipients }}명
+              <span v-if="b.services.includes('visiting_care')">
+                {{ b.home_visit_recipients }}<span class="text-muted-foreground">명</span>
               </span>
               <span v-else class="text-muted-foreground">—</span>
             </td>
