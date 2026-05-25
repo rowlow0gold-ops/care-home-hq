@@ -56,36 +56,63 @@ const initialBranch =
     : "";
 const branchFilter = ref<string>(initialBranch);
 
-// Date scope — only three presets: 이번 달 / 올해 / 전체 기간.
+// Date filter — choose a granularity, then a specific period.
+//   월별  + selectedMonth ('YYYY-MM') → that month only
+//   연도별 + selectedYear  (number)    → that calendar year only
+//   전체 기간                          → no upper bound (1970 → now)
 type DateScope = "month" | "year" | "all";
 const dateScope = ref<DateScope>("month");
 
-// Convert the scope into the YYYY-MM-DD `since` the API understands.
-// "all" sends a very early date so the backend's `recorded_at >= $1` matches
-// every record without needing a new SQL branch.
-const sinceDate = computed<string>(() => {
-  const now = new Date();
+const now = new Date();
+const selectedMonth = ref<string>(
+  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
+);
+const selectedYear = ref<number>(now.getFullYear());
+
+// Years offered in the 연도별 dropdown: current year and the four prior.
+const yearOptions = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i);
+
+// Pad helper
+function pad2(n: number) { return String(n).padStart(2, "0"); }
+
+// Convert the picked scope into a (since, until) pair the API understands.
+// `until` is the inclusive last day; backend treats it as `recorded_at < until+1d`.
+const dateRange = computed<{ since: string; until: string | undefined }>(() => {
   if (dateScope.value === "month") {
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+    const [yyyy, mm] = selectedMonth.value.split("-").map(Number);
+    const first = `${yyyy}-${pad2(mm)}-01`;
+    // last day of month: day 0 of next month
+    const lastDate = new Date(yyyy, mm, 0).getDate();
+    const last = `${yyyy}-${pad2(mm)}-${pad2(lastDate)}`;
+    return { since: first, until: last };
   }
   if (dateScope.value === "year") {
-    return `${now.getFullYear()}-01-01`;
+    return { since: `${selectedYear.value}-01-01`, until: `${selectedYear.value}-12-31` };
   }
-  return "1970-01-01";
+  // All time — no upper bound
+  return { since: "1970-01-01", until: undefined };
 });
 
-// Human-friendly window label for the KPI card and table header.
+// Human-friendly label for the KPI card and the table column header.
 const sinceLabel = computed(() => {
-  if (dateScope.value === "month") return "이번 달";
-  if (dateScope.value === "year")  return "올해";
+  if (dateScope.value === "month") {
+    const [yyyy, mm] = selectedMonth.value.split("-");
+    return `${yyyy}년 ${parseInt(mm, 10)}월`;
+  }
+  if (dateScope.value === "year") {
+    return `${selectedYear.value}년`;
+  }
   return "전체 기간";
 });
 
 const [{ data, pending, error }, { data: runs }] = await Promise.all([
   useAsyncData(
     "dashboard",
-    () => api.get<DashboardSummary>("/v1/dashboard/summary", { since: sinceDate.value }),
-    { watch: [dateScope] },
+    () => api.get<DashboardSummary>("/v1/dashboard/summary", {
+      since: dateRange.value.since,
+      until: dateRange.value.until,
+    }),
+    { watch: [dateRange] },
   ),
   useAsyncData("billing-runs", () => api.get<BillingRun[]>("/v1/billing/runs")),
 ]);
@@ -159,7 +186,8 @@ const kpis = computed(() => {
         query: {
           tab: "care-logs",
           flagged: "true",
-          since: sinceDate.value,
+          since: dateRange.value.since,
+          ...(dateRange.value.until ? { until: dateRange.value.until } : {}),
           ...(branchFilter.value ? { branch: branchFilter.value } : {}),
         },
       },
@@ -264,9 +292,23 @@ const tablePageEnd = computed(() =>
           v-model="dateScope"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
-          <option value="month">이번 달</option>
-          <option value="year">올해</option>
+          <option value="month">월별</option>
+          <option value="year">연도별</option>
           <option value="all">전체 기간</option>
+        </select>
+        <input
+          v-if="dateScope === 'month'"
+          v-model="selectedMonth"
+          type="month"
+          :max="`${now.getFullYear()}-${pad2(now.getMonth() + 1)}`"
+          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+        >
+        <select
+          v-else-if="dateScope === 'year'"
+          v-model.number="selectedYear"
+          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+        >
+          <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}년</option>
         </select>
       </div>
     </header>
