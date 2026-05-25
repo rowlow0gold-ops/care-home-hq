@@ -77,8 +77,11 @@ async function onSubmit() {
   try {
     await login(email.value, password.value);
     toast.success("로그인 성공", "환영합니다");
-    const redirect = (route.query.redirect as string | undefined) ?? null;
-    if (redirect) await navigateTo(redirect);
+    // Always navigate after a successful login. Honor ?redirect=… if present
+    // (the auth middleware sets it when bouncing an unauthenticated request),
+    // otherwise land on the dashboard.
+    const redirect = (route.query.redirect as string | undefined) ?? "/";
+    await navigateTo(redirect);
   } catch (err: any) {
     error.value =
       err?.statusMessage ??
