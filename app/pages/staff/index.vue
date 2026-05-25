@@ -5,7 +5,6 @@ import {
   ChevronLeft,
   ChevronRight,
   UsersRound,
-  CalendarOff,
   Calendar,
   Sun,
   Sunset,
@@ -13,7 +12,6 @@ import {
   MapPin,
   UserCheck,
   Loader2,
-  Wallet,
 } from "@lucide/vue";
 
 useHead({ title: "직원 관리 · 케어닥 HQ" });
@@ -23,13 +21,11 @@ const router = useRouter();
 const api = useApi();
 
 // Tab — synced with ?tab=
-type Tab = "list" | "schedule" | "leave";
+// 휴가 used to live here but has been moved out — branches manage their own
+// leave per-center now. Legacy ?tab=leave URLs fall through to 직원 목록.
+type Tab = "list" | "schedule";
 const tab = ref<Tab>(
-  route.query.tab === "leave"
-    ? "leave"
-    : route.query.tab === "schedule"
-      ? "schedule"
-      : "list",
+  route.query.tab === "schedule" ? "schedule" : "list",
 );
 watch(tab, (v) => {
   router.replace({
@@ -282,162 +278,6 @@ const scheduleSummary = computed(() => {
   };
 });
 
-// =============================================================================
-// 휴가 (read-only)
-// =============================================================================
-interface LeaveRequest {
-  id: string;
-  branch_id: string | null;
-  branch_name: string | null;
-  user_id: string;
-  user_name: string;
-  user_role: string;
-  leave_type: string;
-  start_date: string;
-  end_date: string;
-  days: number;
-  reason: string | null;
-  status: "pending" | "approved" | "rejected" | "cancelled";
-  requested_at: string;
-  decided_at: string | null;
-  decided_by_name: string | null;
-}
-
-// =============================================================================
-// 잔여 연차 (vacation balance summary) — top of the 휴가 tab
-// =============================================================================
-// In Korea, unused annual leave at year end has to be paid out as 연차수당
-// (cash). So this view is essentially the boss's payroll-liability dashboard.
-//
-// PAYOUT_PER_DAY_KRW is a rough average daily wage for the visualization;
-// we don't have per-staff salary data on the API yet.
-const PAYOUT_PER_DAY_KRW = 130_000;
-
-interface StaffBalance {
-  user_id: string;
-  user_name: string;
-  branch_id: string | null;
-  branch_name: string | null;
-  position_ko: string | null;
-  year: number;
-  annual_allocated: number;
-  annual_used: number;
-  annual_remaining: number;
-}
-
-const { data: balanceRows, pending: balancesPending } = await useAsyncData(
-  "staff-leave-balances",
-  () => api.get<StaffBalance[]>("/v1/leave-requests/balances")
-          .then((rows) => rows ?? [])
-          .catch(() => [] as StaffBalance[]),
-);
-
-const totalRemainingDays = computed(() =>
-  (balanceRows.value ?? []).reduce((acc, b) => acc + (b.annual_remaining ?? 0), 0),
-);
-const estimatedPayoutKRW = computed(() =>
-  Math.round(totalRemainingDays.value * PAYOUT_PER_DAY_KRW),
-);
-
-const balancesPageSize = 25;
-const balancesPage = ref(1);
-const balancesTotalPages = computed(() =>
-  Math.max(1, Math.ceil((balanceRows.value?.length ?? 0) / balancesPageSize)),
-);
-const pagedBalances = computed(() => {
-  const all = balanceRows.value ?? [];
-  const start = (balancesPage.value - 1) * balancesPageSize;
-  return all.slice(start, start + balancesPageSize);
-});
-const balancesPageStart = computed(() =>
-  (balanceRows.value?.length ?? 0) === 0
-    ? 0
-    : (balancesPage.value - 1) * balancesPageSize + 1,
-);
-const balancesPageEnd = computed(() =>
-  Math.min(balancesPage.value * balancesPageSize, balanceRows.value?.length ?? 0),
-);
-
-// =============================================================================
-// Draft filters for 휴가 신청 내역 (existing)
-// =============================================================================
-
-// Draft filters for 휴가 tab
-const leaveStatus = ref<string>("pending");
-const leaveBranch = ref<string>(useDefaultBranch());
-const leaveQ = ref("");
-// Applied
-const appliedLeaveStatus = ref(leaveStatus.value);
-const appliedLeaveBranch = ref(leaveBranch.value);
-const appliedLeaveQ = ref("");
-
-function applyLeaveFilters() {
-  appliedLeaveStatus.value = leaveStatus.value;
-  appliedLeaveBranch.value = leaveBranch.value;
-  appliedLeaveQ.value = leaveQ.value.trim();
-  leavePage.value = 1;
-}
-
-const { data: leaveRows } = await useAsyncData(
-  "staff-leave-requests",
-  () =>
-    api.get<LeaveRequest[]>("/v1/leave-requests", {
-      status: appliedLeaveStatus.value || undefined,
-    }),
-  { watch: [appliedLeaveStatus] },
-);
-
-const leaveFiltered = computed(() => {
-  let r = leaveRows.value ?? [];
-  if (appliedLeaveBranch.value === "__hq__") r = r.filter((x) => !x.branch_id);
-  else if (appliedLeaveBranch.value) r = r.filter((x) => x.branch_id === appliedLeaveBranch.value);
-  if (appliedLeaveQ.value) {
-    const n = appliedLeaveQ.value.toLowerCase();
-    r = r.filter(
-      (x) => x.user_name.toLowerCase().includes(n) || (x.reason ?? "").toLowerCase().includes(n),
-    );
-  }
-  return r;
-});
-
-// 휴가 pagination
-const leavePageSize = ref(25);
-const leavePage = ref(1);
-const leaveTotalPages = computed(() =>
-  Math.max(1, Math.ceil(leaveFiltered.value.length / leavePageSize.value)),
-);
-watch([leavePageSize], () => {
-  leavePage.value = 1;
-});
-watch(leaveTotalPages, (n) => { if (leavePage.value > n) leavePage.value = n; });
-const leavePaged = computed(() => {
-  const start = (leavePage.value - 1) * leavePageSize.value;
-  return leaveFiltered.value.slice(start, start + leavePageSize.value);
-});
-const leavePageStart = computed(() =>
-  leaveFiltered.value.length === 0 ? 0 : (leavePage.value - 1) * leavePageSize.value + 1,
-);
-const leavePageEnd = computed(() =>
-  Math.min(leavePage.value * leavePageSize.value, leaveFiltered.value.length),
-);
-
-const leaveTypeKo: Record<string, string> = {
-  annual: "연차", monthly: "월차", sick: "병가",
-  personal: "경조사", maternity: "출산휴가", public: "공가",
-};
-const statusKo: Record<LeaveRequest["status"], string> = {
-  pending: "승인 대기", approved: "승인됨", rejected: "반려됨", cancelled: "취소됨",
-};
-const statusTone: Record<LeaveRequest["status"], string> = {
-  pending: "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200",
-  approved: "bg-primary/10 text-primary",
-  rejected: "bg-destructive/10 text-destructive",
-  cancelled: "bg-muted text-muted-foreground",
-};
-
-function fmtDate(iso: string) {
-  return iso.slice(0, 10);
-}
 </script>
 
 <template>
@@ -445,7 +285,7 @@ function fmtDate(iso: string) {
     <header class="mb-4">
       <h1 class="text-3xl font-bold tracking-tight">직원 관리</h1>
       <p class="text-sm text-muted-foreground mt-1">
-        전 지점 직원 + 본사 인력 · 근무 일정 · 휴가 현황
+        전 지점 직원 + 본사 인력 · 근무 일정
       </p>
     </header>
 
@@ -470,16 +310,6 @@ function fmtDate(iso: string) {
       >
         <Calendar class="h-4 w-4" />
         근무 일정
-      </button>
-      <button
-        class="px-4 py-2 text-sm font-medium border-b-2 -mb-px transition flex items-center gap-1.5"
-        :class="tab === 'leave'
-          ? 'border-primary text-primary'
-          : 'border-transparent text-muted-foreground hover:text-foreground'"
-        @click="tab = 'leave'"
-      >
-        <CalendarOff class="h-4 w-4" />
-        휴가
       </button>
     </div>
 
@@ -768,241 +598,5 @@ function fmtDate(iso: string) {
       </div>
     </div>
 
-    <!-- ================================================================ -->
-    <!-- TAB: 휴가 (잔여 연차 + 신청 내역)                                  -->
-    <!-- ================================================================ -->
-    <template v-else>
-    <!-- 잔여 연차 (벌써 돈) — top-of-page summary -->
-    <div class="rounded-xl border bg-card overflow-hidden mb-4">
-      <div class="px-6 py-4 border-b flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h2 class="text-base font-semibold flex items-center gap-2">
-            <Wallet class="h-4 w-4 text-primary" />
-            잔여 연차
-          </h2>
-          <p class="text-xs text-muted-foreground mt-0.5">
-            연말까지 미사용 시 <strong class="text-foreground">연차수당</strong>으로 지급됩니다. 사실상 회사의 현금 부채.
-          </p>
-        </div>
-        <div class="flex items-center gap-4 text-xs">
-          <div class="text-center">
-            <div class="text-muted-foreground">총 잔여</div>
-            <div class="text-2xl font-bold tabular-nums text-primary">{{ totalRemainingDays.toFixed(1) }}일</div>
-          </div>
-          <div class="text-center">
-            <div class="text-muted-foreground">추정 연차수당</div>
-            <div class="text-2xl font-bold tabular-nums text-primary">
-              ₩{{ estimatedPayoutKRW.toLocaleString("ko-KR") }}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div v-if="balancesPending" class="py-8 text-center text-sm text-muted-foreground">불러오는 중…</div>
-      <div v-else-if="balanceRows.length === 0" class="py-8 text-center text-sm text-muted-foreground">
-        조회 가능한 직원이 없습니다.
-      </div>
-      <table v-else class="w-full text-sm">
-        <thead>
-          <tr class="text-left text-xs text-muted-foreground bg-muted/30">
-            <th class="py-3 px-6 font-medium">이름</th>
-            <th class="py-3 px-3 font-medium">소속</th>
-            <th class="py-3 px-3 font-medium">직책</th>
-            <th class="py-3 px-3 font-medium text-right">부여</th>
-            <th class="py-3 px-3 font-medium text-right">사용</th>
-            <th class="py-3 px-6 font-medium text-right">잔여 (≈ 연차수당)</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="b in pagedBalances"
-            :key="b.user_id"
-            class="border-t hover:bg-muted/30"
-          >
-            <td class="py-3 px-6 font-medium">{{ b.user_name }}</td>
-            <td class="py-3 px-3 text-xs text-muted-foreground">{{ b.branch_name ?? "본사" }}</td>
-            <td class="py-3 px-3 text-xs text-muted-foreground">{{ b.position_ko ?? "—" }}</td>
-            <td class="py-3 px-3 text-right tabular-nums">{{ b.annual_allocated.toFixed(1) }}일</td>
-            <td class="py-3 px-3 text-right tabular-nums text-muted-foreground">{{ b.annual_used.toFixed(1) }}일</td>
-            <td class="py-3 px-6 text-right">
-              <div class="font-semibold tabular-nums" :class="b.annual_remaining > 10 ? 'text-amber-600 dark:text-amber-400' : ''">
-                {{ b.annual_remaining.toFixed(1) }}일
-              </div>
-              <div class="text-[11px] text-muted-foreground tabular-nums">
-                ≈ ₩{{ Math.round(b.annual_remaining * PAYOUT_PER_DAY_KRW).toLocaleString("ko-KR") }}
-              </div>
-            </td>
-          </tr>
-        </tbody>
-      </table>
-
-      <!-- Pagination for balances -->
-      <div v-if="balanceRows.length > balancesPageSize" class="px-6 py-3 border-t flex items-center justify-between text-xs">
-        <div class="text-muted-foreground tabular-nums">
-          {{ balancesPageStart }}–{{ balancesPageEnd }} / 총 {{ balanceRows.length }}명
-        </div>
-        <div class="flex items-center gap-1">
-          <button
-            type="button"
-            class="h-7 w-7 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
-            :disabled="balancesPage <= 1"
-            @click="balancesPage--"
-          ><ChevronLeft class="h-3.5 w-3.5" /></button>
-          <span class="tabular-nums text-muted-foreground px-1">{{ balancesPage }} / {{ balancesTotalPages }}</span>
-          <button
-            type="button"
-            class="h-7 w-7 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
-            :disabled="balancesPage >= balancesTotalPages"
-            @click="balancesPage++"
-          ><ChevronRight class="h-3.5 w-3.5" /></button>
-        </div>
-      </div>
-    </div>
-
-    <!-- 휴가 신청 내역 (existing) -->
-    <div class="rounded-xl border bg-card overflow-hidden">
-      <div class="px-6 py-4 border-b flex flex-wrap items-center gap-3">
-        <div class="relative flex-1 min-w-[200px] max-w-sm">
-          <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-          <input
-            v-model="leaveQ"
-            placeholder="이름 / 사유 검색"
-            class="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-            @keyup.enter="applyLeaveFilters"
-          >
-        </div>
-        <select
-          v-model="leaveStatus"
-          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-        >
-          <option value="pending">승인 대기</option>
-          <option value="approved">승인됨</option>
-          <option value="rejected">반려됨</option>
-          <option value="">전체 상태</option>
-        </select>
-        <!-- HQ: branch dropdown · BM: locked badge -->
-        <select
-          v-if="isHqSchedule"
-          v-model="leaveBranch"
-          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-        >
-          <option value="">전체 (본사 + 지점)</option>
-          <option value="__hq__">본사만</option>
-          <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
-        </select>
-        <div
-          v-else
-          class="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border bg-muted/30 text-sm"
-          title="본인 소속 지점만 조회할 수 있습니다"
-        >
-          <Building2 class="h-3.5 w-3.5 text-primary" />
-          <span class="font-medium">
-            {{ dashboard?.branches?.find((b) => b.id === leaveBranch)?.name ?? '내 지점' }}
-          </span>
-        </div>
-        <button
-          type="button"
-          @click="applyLeaveFilters"
-          aria-label="검색"
-          title="검색"
-          class="h-10 w-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center"
-        >
-          <Search class="h-4 w-4" />
-        </button>
-        <div class="ml-auto text-xs text-muted-foreground tabular-nums">
-          {{ leaveFiltered.length }} / {{ (leaveRows ?? []).length }}건
-        </div>
-      </div>
-
-      <table class="w-full text-sm">
-          <thead>
-            <tr class="text-left text-xs text-muted-foreground bg-muted/30">
-              <th class="py-3 px-6 font-medium">신청자</th>
-              <th class="py-3 px-3 font-medium">종류</th>
-              <th class="py-3 px-3 font-medium">기간</th>
-              <th class="py-3 px-3 font-medium text-right">일수</th>
-              <th class="py-3 px-3 font-medium">사유</th>
-              <th class="py-3 px-3 font-medium">상태</th>
-              <th class="py-3 px-6 font-medium">결재자</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="r in leavePaged"
-              :key="r.id"
-              class="border-t hover:bg-muted/30 transition-colors"
-            >
-              <td class="py-3 px-6">
-                <div class="font-medium">{{ r.user_name }}</div>
-                <div class="text-xs text-muted-foreground">{{ r.branch_name ?? "본사" }}</div>
-              </td>
-              <td class="py-3 px-3">{{ leaveTypeKo[r.leave_type] ?? r.leave_type }}</td>
-              <td class="py-3 px-3 text-xs text-muted-foreground tabular-nums">
-                {{ fmtDate(r.start_date) }}<br>~ {{ fmtDate(r.end_date) }}
-              </td>
-              <td class="py-3 px-3 text-right tabular-nums font-medium">{{ r.days.toFixed(1) }}일</td>
-              <td class="py-3 px-3 text-xs text-muted-foreground max-w-xs truncate">{{ r.reason ?? "—" }}</td>
-              <td class="py-3 px-3">
-                <span
-                  class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
-                  :class="statusTone[r.status]"
-                >
-                  {{ statusKo[r.status] }}
-                </span>
-              </td>
-              <td class="py-3 px-6 text-xs text-muted-foreground">
-                {{ r.decided_by_name ?? "—" }}
-              </td>
-            </tr>
-            <tr v-if="leaveFiltered.length === 0">
-              <td colspan="7" class="py-12 text-center text-sm text-muted-foreground">
-                <CalendarOff class="h-10 w-10 mx-auto mb-3 opacity-30" />
-                조건에 맞는 휴가 신청이 없습니다.
-              </td>
-            </tr>
-          </tbody>
-        </table>
-
-      <!-- Pagination -->
-      <div
-        v-if="leaveFiltered.length > 0"
-        class="px-6 py-3 border-t flex flex-wrap items-center gap-3 text-xs"
-      >
-        <div class="text-muted-foreground tabular-nums">
-          {{ leavePageStart }}–{{ leavePageEnd }} / 총 {{ leaveFiltered.length }}건
-        </div>
-        <div class="ml-auto flex items-center gap-2">
-          <label class="text-muted-foreground">페이지당</label>
-          <select
-            v-model.number="leavePageSize"
-            class="h-8 px-2 rounded-md border border-input bg-background text-xs"
-          >
-            <option v-for="n in pageSizeOptions" :key="n" :value="n">{{ n }}</option>
-          </select>
-        </div>
-        <div class="flex items-center gap-1">
-          <button
-            class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
-            :disabled="leavePage <= 1"
-            @click="leavePage = leavePage - 1"
-            title="이전"
-          >
-            <ChevronLeft class="h-4 w-4" />
-          </button>
-          <span class="px-2 tabular-nums">
-            <strong>{{ leavePage }}</strong> / {{ leaveTotalPages }}
-          </span>
-          <button
-            class="h-8 w-8 rounded-md border flex items-center justify-center disabled:opacity-30 hover:bg-muted"
-            :disabled="leavePage >= leaveTotalPages"
-            @click="leavePage = leavePage + 1"
-            title="다음"
-          >
-            <ChevronRight class="h-4 w-4" />
-          </button>
-        </div>
-      </div>
-    </div>
-    </template>
   </div>
 </template>
