@@ -28,10 +28,18 @@ interface PagedCareLogs {
 const api = useApi();
 const categories = ["식사", "투약", "배설", "위생", "활동", "이상징후", "기타"];
 
+// Read initial filters from URL query (so dashboard KPI cards can deep-link).
+const route = useRoute();
+const initialFlagged = route.query.flagged === "true";
+const initialBranch  =
+  typeof route.query.branch === "string" && route.query.branch.length > 0
+    ? route.query.branch
+    : useDefaultBranch();
+
 // Draft filter values (committed only on 검색 click / Enter)
-const onlyFlagged = ref(false);
+const onlyFlagged = ref(initialFlagged);
 const categoryFilter = ref<string>("");
-const branchFilter = ref<string>(useDefaultBranch());
+const branchFilter = ref<string>(initialBranch);
 const q = ref("");
 
 // Applied filter values drive the server fetch

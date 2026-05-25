@@ -19,10 +19,19 @@ interface PagedResidents { items: Resident[]; total: number; page: number; page_
 interface Branch { id: string; name: string }
 
 const api = useApi();
+
+// Allow dashboard KPI cards (or any other deep link) to pre-select a branch
+// via ?branch=ID.
+const route = useRoute();
+const initialBranch =
+  typeof route.query.branch === "string" && route.query.branch.length > 0
+    ? route.query.branch
+    : useDefaultBranch();
+
 // Draft filters (what the user is editing). Committed to `applied*` only when
 // 검색 is clicked (or Enter is pressed in the search input).
 const q = ref("");
-const branchFilter = ref<string>(useDefaultBranch());
+const branchFilter = ref<string>(initialBranch);
 const gradeFilter = ref<string>("");
 const statusFilter = ref<string>("active");
 // Applied filters — these drive the server-side fetch.

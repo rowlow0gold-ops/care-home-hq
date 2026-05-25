@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { Users, AlertCircle, ClipboardList, UserCheck, Wallet, Building2, Filter, Search } from "@lucide/vue";
+import {
+  Users, AlertCircle, ClipboardList, UserCheck, Wallet, Building2, Filter,
+  ChevronLeft, ChevronRight, ChevronRight as ChevRight,
+} from "@lucide/vue";
 
 useHead({ title: "대시보드 · 케어닥 HQ" });
 
@@ -45,28 +48,50 @@ interface BillingRun {
   total_amount: number | null;
 }
 
-const [{ data, pending, error }, { data: runs }] = await Promise.all([
-  useAsyncData("dashboard", () => api.get<DashboardSummary>("/v1/dashboard/summary")),
-  useAsyncData("billing-runs", () => api.get<BillingRun[]>("/v1/billing/runs")),
-]);
-
-// ----- 청구 매출 (no in-card filters; respects top-level branch filter) ----
-const completedRuns = computed(() =>
-  (runs.value ?? []).filter((r) => r.status === "completed"),
-);
-
-// Default: 센터장 → own branch, HQ/super_admin → 전체 지점 ("")
+// ----- Top-level filters: branch + date ----------------------------------
 const { me } = useAuth();
 const initialBranch =
   me.value?.role === "branch_manager" && me.value.branch_id
     ? me.value.branch_id
     : "";
-const billingBranch = ref<string>(initialBranch);
+const branchFilter = ref<string>(initialBranch);
+
+// Date filter — "이후 / since". Default: 7 days ago.
+function todayMinusDays(n: number): string {
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return d.toISOString().slice(0, 10);
+}
+const sinceDate = ref<string>(todayMinusDays(7));
+
+// Human-friendly window label for the KPI card.
+const sinceLabel = computed(() => {
+  const d = new Date(sinceDate.value);
+  if (isNaN(d.getTime())) return "기간 미설정";
+  const diffMs = Date.now() - d.getTime();
+  const days = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
+  if (days === 0) return "오늘";
+  if (days === 1) return "최근 1일";
+  return `최근 ${days}일`;
+});
+
+const [{ data, pending, error }, { data: runs }] = await Promise.all([
+  useAsyncData(
+    "dashboard",
+    () => api.get<DashboardSummary>("/v1/dashboard/summary", { since: sinceDate.value }),
+    { watch: [sinceDate] },
+  ),
+  useAsyncData("billing-runs", () => api.get<BillingRun[]>("/v1/billing/runs")),
+]);
+
+// ----- 청구 매출 (respects top-level branch filter; no in-card controls) -
+const completedRuns = computed(() =>
+  (runs.value ?? []).filter((r) => r.status === "completed"),
+);
 
 const filteredBilling = computed(() => {
   let rows = completedRuns.value;
-  // Month filter removed per UX request — total spans the full history.
-  if (billingBranch.value) rows = rows.filter((r) => r.branch_id === billingBranch.value);
+  if (branchFilter.value) rows = rows.filter((r) => r.branch_id === branchFilter.value);
   return rows;
 });
 
@@ -75,11 +100,6 @@ const billingTotal = computed(() =>
 );
 const billingCount = computed(() => filteredBilling.value.length);
 
-function fmtKRW(n: number) {
-  if (n >= 100_000_000) return `₩${(n / 100_000_000).toFixed(1)}억`;
-  if (n >= 10_000)      return `₩${(n / 10_000).toFixed(0)}만`;
-  return `₩${n.toLocaleString("ko-KR")}`;
-}
 function fmtKRWFull(n: number | null) {
   if (n === null || n === undefined) return "—";
   return `₩${n.toLocaleString("ko-KR")}`;
@@ -98,35 +118,21 @@ const SERVICE_SHORT: Record<string, string> = {
 function serviceLabel(s: string) { return SERVICE_LABEL[s] ?? s; }
 function serviceShort(s: string) { return SERVICE_SHORT[s] ?? s; }
 
-// ----- Top-level center filter --------------------------------------------
-// Empty string = "전체 지점" (all centers). Filter affects KPIs + table + the
-// money hero's branch dropdown (which uses its own state, but we mirror here).
-const branchFilter = ref<string>(initialBranch);
-
-// Draft + applied for the table search (committed on 검색)
-const branchSearch = ref<string>("");
-const appliedBranchSearch = ref<string>("");
-function applyBranchSearch() {
-  appliedBranchSearch.value = branchSearch.value.trim().toLowerCase();
-}
-
+// ----- Branch table — driven by top-level branch filter only -------------
 const visibleBranches = computed(() => {
-  let all = data.value?.branches ?? [];
-  if (branchFilter.value) all = all.filter((b) => b.id === branchFilter.value);
-  if (appliedBranchSearch.value) {
-    all = all.filter((b) => b.name.toLowerCase().includes(appliedBranchSearch.value));
-  }
-  return all;
+  const all = data.value?.branches ?? [];
+  if (!branchFilter.value) return all;
+  return all.filter((b) => b.id === branchFilter.value);
 });
 
-// KPI totals reflect the current filter
+// KPI totals reflect the branch filter
 const filteredTotals = computed(() => {
   const bs = visibleBranches.value;
   return {
     residents: bs.reduce((acc, b) => acc + b.resident_count, 0),
     incidents_7d: bs.reduce((acc, b) => acc + b.incidents_7d, 0),
     staff_total: bs.reduce((acc, b) => acc + b.staff_on_duty, 0),
-    // open_care_logs is tenant-wide from server; only meaningful when no filter
+    // tenant-wide value only meaningful when no branch filter
     open_care_logs: branchFilter.value ? null : (data.value?.totals.open_care_logs ?? 0),
   };
 });
@@ -135,50 +141,94 @@ const kpis = computed(() => {
   const t = filteredTotals.value;
   return [
     {
-      label: "최근 7일 사고/이상징후",
+      key: "incidents",
+      label: `${sinceLabel.value} 사고/이상징후`,
       value: t.incidents_7d,
       icon: AlertCircle,
       bg: t.incidents_7d > 5 ? "bg-destructive/10" : "bg-amber-100 dark:bg-amber-900/30",
       iconColor: t.incidents_7d > 5 ? "text-destructive" : "text-amber-700 dark:text-amber-300",
       isWarning: t.incidents_7d > 5,
+      // /care-logs?flagged=true&since=YYYY-MM-DD&branch=…
+      href: {
+        path: "/care-logs",
+        query: {
+          flagged: "true",
+          since: sinceDate.value,
+          ...(branchFilter.value ? { branch: branchFilter.value } : {}),
+        },
+      },
     },
     {
+      key: "residents",
       label: "입소 어르신",
       value: t.residents,
       icon: Users,
       bg: "bg-primary/10",
       iconColor: "text-primary",
+      href: {
+        path: "/residents",
+        query: {
+          ...(branchFilter.value ? { branch: branchFilter.value } : {}),
+        },
+      },
     },
     {
+      key: "staff",
       label: "전체 직원",
       value: t.staff_total,
       icon: UserCheck,
       bg: "bg-blue-100 dark:bg-blue-900/30",
       iconColor: "text-blue-600 dark:text-blue-300",
+      href: {
+        path: "/staff",
+        query: {
+          ...(branchFilter.value ? { branch: branchFilter.value } : {}),
+        },
+      },
     },
     {
+      key: "open_care_logs",
       label: "확인 필요 케어 기록",
       value: t.open_care_logs,
       icon: ClipboardList,
       bg: "bg-violet-100 dark:bg-violet-900/30",
       iconColor: "text-violet-600 dark:text-violet-300",
+      href: {
+        path: "/care-logs",
+        query: {
+          flagged: "true",
+          ...(branchFilter.value ? { branch: branchFilter.value } : {}),
+        },
+      },
     },
   ];
 });
-
-// Keep the money-hero branch filter in sync with the top-level one
-watch(branchFilter, (v) => { billingBranch.value = v; });
 
 function fmtNum(n: number | null | undefined) {
   if (n === null || n === undefined) return "—";
   return n.toLocaleString("ko-KR");
 }
 
-function occupancyTone(pct: number) {
-  if (pct >= 80) return "text-primary";
-  if (pct >= 50) return "text-amber-600 dark:text-amber-300";
-  return "text-muted-foreground";
-}
+// ----- Pagination for 지점별 현황 ----------------------------------------
+const tablePage = ref(1);
+const tablePageSize = ref(10);
+const tablePageSizeOptions = [10, 25, 50, 100];
+const tableTotalPages = computed(() =>
+  Math.max(1, Math.ceil(visibleBranches.value.length / tablePageSize.value)),
+);
+watch([branchFilter, tablePageSize, visibleBranches], () => {
+  tablePage.value = 1;
+});
+const pagedBranches = computed(() => {
+  const start = (tablePage.value - 1) * tablePageSize.value;
+  return visibleBranches.value.slice(start, start + tablePageSize.value);
+});
+const tablePageStart = computed(() =>
+  visibleBranches.value.length === 0 ? 0 : (tablePage.value - 1) * tablePageSize.value + 1,
+);
+const tablePageEnd = computed(() =>
+  Math.min(tablePage.value * tablePageSize.value, visibleBranches.value.length),
+);
 </script>
 
 <template>
@@ -192,7 +242,7 @@ function occupancyTone(pct: number) {
             : "전 지점 운영 현황 한눈에 보기" }}
         </p>
       </div>
-      <div class="flex items-center gap-2">
+      <div class="flex items-center gap-2 flex-wrap">
         <Filter class="h-4 w-4 text-muted-foreground" />
         <select
           v-model="branchFilter"
@@ -203,10 +253,17 @@ function occupancyTone(pct: number) {
             {{ b.name }} {{ b.branch_type === 'hub' ? '· Hub' : '· Sat' }}
           </option>
         </select>
+        <label class="text-xs text-muted-foreground ml-2">이후</label>
+        <input
+          v-model="sinceDate"
+          type="date"
+          :max="new Date().toISOString().slice(0,10)"
+          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+        >
       </div>
     </header>
 
-    <!-- MONEY HERO — main HQ metric -->
+    <!-- MONEY HERO -->
     <div class="rounded-2xl border bg-gradient-to-br from-primary/15 via-primary/5 to-card p-6 mb-6 relative overflow-hidden">
       <div class="absolute -right-8 -top-8 h-32 w-32 rounded-full bg-primary/10 blur-2xl" />
       <div class="relative flex items-start justify-between gap-4 flex-wrap">
@@ -222,26 +279,29 @@ function occupancyTone(pct: number) {
             ₩{{ billingTotal.toLocaleString("ko-KR") }}
           </div>
           <div class="text-xs text-muted-foreground mt-1">
-            <span v-if="billingBranch">
-              {{ data?.branches?.find((b) => b.id === billingBranch)?.name ?? "—" }} ·
+            <span v-if="branchFilter">
+              {{ data?.branches?.find((b) => b.id === branchFilter)?.name ?? "—" }} ·
             </span>
             완료된 청구 {{ billingCount }}건
           </div>
         </div>
-
       </div>
     </div>
 
-    <!-- KPI cards -->
+    <!-- KPI cards (clickable → detail pages) -->
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
-      <div
-        v-for="(k, idx) in kpis"
-        :key="idx"
-        class="rounded-xl border bg-card p-5 transition-all hover:shadow-md hover:-translate-y-0.5"
+      <NuxtLink
+        v-for="k in kpis"
+        :key="k.key"
+        :to="k.href"
+        class="rounded-xl border bg-card p-5 transition-all hover:shadow-md hover:-translate-y-0.5 hover:border-primary/40 focus:outline-none focus:ring-4 focus:ring-primary/15 group block"
       >
         <div class="flex items-start justify-between">
           <div class="flex-1 min-w-0">
-            <p class="text-sm text-muted-foreground">{{ k.label }}</p>
+            <p class="text-sm text-muted-foreground flex items-center gap-1">
+              {{ k.label }}
+              <ChevRight class="h-3 w-3 opacity-0 -translate-x-1 group-hover:opacity-60 group-hover:translate-x-0 transition-all" />
+            </p>
             <p
               class="text-3xl font-bold mt-2 tabular-nums"
               :class="k.isWarning ? 'text-destructive' : ''"
@@ -257,37 +317,13 @@ function occupancyTone(pct: number) {
             <component :is="k.icon" class="h-5 w-5" :class="k.iconColor" />
           </div>
         </div>
-      </div>
+      </NuxtLink>
     </div>
 
-    <!-- Branch table — now includes last billing per branch -->
+    <!-- Branch table -->
     <div class="rounded-xl border bg-card overflow-hidden">
-      <div class="px-6 py-4 border-b flex items-end justify-between gap-4 flex-wrap">
-        <div>
-          <h2 class="text-lg font-semibold">지점별 현황</h2>
-          <p class="text-sm text-muted-foreground">매출 · 입소율 · 사고 · 근무 인원 (최근 7일 기준)</p>
-        </div>
-        <div class="flex items-center gap-2">
-          <div class="relative">
-            <Search class="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              v-model="branchSearch"
-              type="text"
-              placeholder="지점명 검색"
-              class="h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 min-w-[200px]"
-              @keyup.enter="applyBranchSearch"
-            />
-          </div>
-          <button
-            type="button"
-            @click="applyBranchSearch"
-            aria-label="검색"
-            title="검색"
-            class="h-10 w-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center"
-          >
-            <Search class="h-4 w-4" />
-          </button>
-        </div>
+      <div class="px-6 py-4 border-b">
+        <h2 class="text-lg font-semibold">지점별 현황</h2>
       </div>
 
       <div v-if="pending && !data" class="px-6 py-4 space-y-3">
@@ -312,15 +348,16 @@ function occupancyTone(pct: number) {
             <th class="py-3 px-3 font-medium text-right">입소</th>
             <th class="py-3 px-3 font-medium text-right">주간</th>
             <th class="py-3 px-3 font-medium text-right">방문</th>
-            <th class="py-3 px-3 font-medium text-right">사고(7d)</th>
+            <th class="py-3 px-3 font-medium text-right">{{ sinceLabel }} 사고</th>
             <th class="py-3 px-6 font-medium text-right">전체 직원</th>
           </tr>
         </thead>
         <tbody>
           <tr
-            v-for="b in visibleBranches"
+            v-for="b in pagedBranches"
             :key="b.id"
-            class="border-t hover:bg-muted/30 transition-colors"
+            class="border-t hover:bg-muted/30 transition-colors cursor-pointer"
+            @click="navigateTo(`/branches/${b.id}`)"
           >
             <td class="py-3 px-6">
               <div class="flex items-center gap-2 flex-wrap">
@@ -380,7 +417,43 @@ function occupancyTone(pct: number) {
           </tr>
         </tbody>
       </table>
-    </div>
 
+      <!-- Pagination -->
+      <div
+        v-if="visibleBranches.length > 0"
+        class="px-6 py-3 border-t flex items-center justify-between text-sm"
+      >
+        <div class="text-xs text-muted-foreground tabular-nums">
+          {{ tablePageStart }}–{{ tablePageEnd }} / 총 {{ visibleBranches.length }}개 지점
+        </div>
+        <div class="flex items-center gap-2">
+          <select
+            v-model.number="tablePageSize"
+            class="h-8 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary"
+          >
+            <option v-for="n in tablePageSizeOptions" :key="n" :value="n">{{ n }}/page</option>
+          </select>
+          <button
+            type="button"
+            class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="tablePage <= 1"
+            @click="tablePage--"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </button>
+          <span class="text-xs text-muted-foreground tabular-nums">
+            {{ tablePage }} / {{ tableTotalPages }}
+          </span>
+          <button
+            type="button"
+            class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="tablePage >= tableTotalPages"
+            @click="tablePage++"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>

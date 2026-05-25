@@ -63,9 +63,15 @@ interface Person {
   is_inactive: boolean;
 }
 
+// Allow dashboard / org-chart deep links to pre-select a branch via ?branch=ID.
+const initialBranch =
+  typeof route.query.branch === "string" && route.query.branch.length > 0
+    ? route.query.branch
+    : useDefaultBranch();
+
 // Draft filters
 const q = ref("");
-const branchFilter = ref<string>(useDefaultBranch());
+const branchFilter = ref<string>(initialBranch);
 const empFilter = ref<string>("");
 // Applied filters — drive `filtered` / `branchScoped`
 const appliedQ = ref("");
