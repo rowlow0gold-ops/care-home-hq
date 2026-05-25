@@ -31,14 +31,27 @@ const { data: runs } = await useAsyncData("billing-runs", () =>
   api.get<BillingRun[]>("/v1/billing/runs"),
 );
 
-// Draft filters (committed only when 검색 is clicked)
+// Draft filters (committed only when 검색 is clicked). The 월 filter uses
+// the same two-select pattern as the dashboard so the look is consistent.
 const filterBranch = ref<string>(useDefaultBranch());
 const filterStatus = ref<string>("");
-const filterYearMonth = ref<string>("");
+const now          = new Date();
+const yearOptions  = Array.from({ length: 5 },  (_, i) => now.getFullYear() - i);
+const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
+const filterYear   = ref<number | "">("");        // "" = 전체 연도
+const filterMonth  = ref<number | "">("");        // "" = 전체 월
+function pad2(n: number) { return String(n).padStart(2, "0"); }
+// Combined for the actual filter logic (YYYY or YYYY-MM, or "" for all)
+const filterYearMonth = computed(() => {
+  if (!filterYear.value) return "";
+  if (!filterMonth.value) return String(filterYear.value);
+  return `${filterYear.value}-${pad2(Number(filterMonth.value))}`;
+});
+
 // Applied filters
 const appliedBranch = ref(filterBranch.value);
 const appliedStatus = ref(filterStatus.value);
-const appliedYearMonth = ref(filterYearMonth.value);
+const appliedYearMonth = ref<string>("");
 
 function applyFilters() {
   appliedBranch.value = filterBranch.value;
@@ -144,13 +157,22 @@ const statusLabel: Record<BillingRun["status"], string> = {
         <h2 class="font-semibold">청구 이력</h2>
         <p class="text-sm text-muted-foreground mt-0.5">전체 이력 · 필터로 좁혀보기</p>
       </div>
-      <div class="px-6 py-3 border-b flex flex-wrap gap-3 items-center bg-muted/20">
-        <input
-          v-model="filterYearMonth"
-          type="month"
-          class="h-9 px-3 rounded-lg border border-input bg-background text-sm w-40 focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-          @click="(e) => { const el = e.currentTarget as HTMLInputElement & { showPicker?: () => void }; if (typeof el.showPicker === 'function') { try { el.showPicker(); } catch {} } }"
+      <div class="px-6 py-3 border-b flex flex-wrap gap-2 items-center bg-muted/20">
+        <select
+          v-model.number="filterYear"
+          class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
+          <option value="">전체 연도</option>
+          <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}년</option>
+        </select>
+        <select
+          v-model.number="filterMonth"
+          :disabled="!filterYear"
+          class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          <option value="">전체 월</option>
+          <option v-for="m in monthOptions" :key="m" :value="m">{{ m }}월</option>
+        </select>
         <select
           v-model="filterBranch"
           class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"

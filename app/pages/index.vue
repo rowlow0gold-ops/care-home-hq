@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   Users, AlertCircle, ClipboardList, UserCheck, Wallet, Building2, Filter,
-  ChevronLeft, ChevronRight, ChevronRight as ChevRight, Calendar,
+  ChevronLeft, ChevronRight, ChevronRight as ChevRight,
 } from "@lucide/vue";
 
 useHead({ title: "대시보드 · 케어닥 HQ" });
@@ -56,52 +56,42 @@ const initialBranch =
     : "";
 const branchFilter = ref<string>(initialBranch);
 
-// Date filter — choose a granularity, then a specific period.
-//   월별  + selectedMonth ('YYYY-MM') → that month only
-//   연도별 + selectedYear  (number)    → that calendar year only
-//   전체 기간                          → no upper bound (1970 → now)
+// Date filter — pick a granularity, then a specific period via plain selects.
+//   월별  + selectedYear + selectedMonth (1-12) → that month only
+//   연도별 + selectedYear                       → that calendar year only
+//   전체 기간                                   → no upper bound
 type DateScope = "month" | "year" | "all";
 const dateScope = ref<DateScope>("month");
 
 const now = new Date();
-const selectedMonth = ref<string>(
-  `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`,
-);
-const selectedYear = ref<number>(now.getFullYear());
+const selectedYear  = ref<number>(now.getFullYear());
+const selectedMonth = ref<number>(now.getMonth() + 1);   // 1-12
 
-// Years offered in the 연도별 dropdown: current year and the four prior.
-const yearOptions = Array.from({ length: 5 }, (_, i) => now.getFullYear() - i);
+// Years offered: current year and the four prior.
+const yearOptions  = Array.from({ length: 5 },  (_, i) => now.getFullYear() - i);
+const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
 
-// Pad helper
 function pad2(n: number) { return String(n).padStart(2, "0"); }
 
 // Convert the picked scope into a (since, until) pair the API understands.
-// `until` is the inclusive last day; backend treats it as `recorded_at < until+1d`.
 const dateRange = computed<{ since: string; until: string | undefined }>(() => {
   if (dateScope.value === "month") {
-    const [yyyy, mm] = selectedMonth.value.split("-").map(Number);
-    const first = `${yyyy}-${pad2(mm)}-01`;
-    // last day of month: day 0 of next month
-    const lastDate = new Date(yyyy, mm, 0).getDate();
-    const last = `${yyyy}-${pad2(mm)}-${pad2(lastDate)}`;
+    const y = selectedYear.value, m = selectedMonth.value;
+    const first    = `${y}-${pad2(m)}-01`;
+    const lastDate = new Date(y, m, 0).getDate();    // day 0 of next month
+    const last     = `${y}-${pad2(m)}-${pad2(lastDate)}`;
     return { since: first, until: last };
   }
   if (dateScope.value === "year") {
     return { since: `${selectedYear.value}-01-01`, until: `${selectedYear.value}-12-31` };
   }
-  // All time — no upper bound
   return { since: "1970-01-01", until: undefined };
 });
 
 // Human-friendly label for the KPI card and the table column header.
 const sinceLabel = computed(() => {
-  if (dateScope.value === "month") {
-    const [yyyy, mm] = selectedMonth.value.split("-");
-    return `${yyyy}년 ${parseInt(mm, 10)}월`;
-  }
-  if (dateScope.value === "year") {
-    return `${selectedYear.value}년`;
-  }
+  if (dateScope.value === "month") return `${selectedYear.value}년 ${selectedMonth.value}월`;
+  if (dateScope.value === "year")  return `${selectedYear.value}년`;
   return "전체 기간";
 });
 
@@ -298,21 +288,19 @@ const tablePageEnd = computed(() =>
           <option value="year">연도별</option>
           <option value="all">전체 기간</option>
         </select>
-        <div v-if="dateScope === 'month'" class="relative">
-          <Calendar class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
-          <input
-            v-model="selectedMonth"
-            type="month"
-            :max="`${now.getFullYear()}-${pad2(now.getMonth() + 1)}`"
-            class="h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 [color-scheme:light] dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full"
-          >
-        </div>
         <select
-          v-else-if="dateScope === 'year'"
+          v-if="dateScope === 'month' || dateScope === 'year'"
           v-model.number="selectedYear"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}년</option>
+        </select>
+        <select
+          v-if="dateScope === 'month'"
+          v-model.number="selectedMonth"
+          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+        >
+          <option v-for="m in monthOptions" :key="m" :value="m">{{ m }}월</option>
         </select>
       </div>
     </header>
