@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { Pill, Search, Loader2, ChevronLeft, ChevronRight, Building2 } from "@lucide/vue";
+import {
+  Pill, Search, Loader2, ChevronLeft, ChevronRight,
+  Building2, MapPin, AlertCircle,
+} from "@lucide/vue";
 
 // HQ sees all branches; everyone else is pinned to their own.
 const { me } = useAuth();
@@ -35,7 +38,7 @@ interface PagedMedications {
 
 const api = useApi();
 
-// Draft filters
+// Draft filters (committed only on 검색)
 const showStopped = ref(false);
 const branchFilter = ref<string>(useDefaultBranch());
 const search = ref("");
@@ -81,21 +84,38 @@ const showingTo = computed(() =>
   paged.value ? Math.min(page.value * pageSize.value, paged.value.total) : 0,
 );
 
-// Group by resident for display (server already orders by resident_name)
-const grouped = computed(() => {
-  const out: Record<string, MedicationRow[]> = {};
-  for (const m of paged.value?.items ?? []) {
-    (out[m.resident_name] ??= []).push(m);
-  }
-  return Object.entries(out);
-});
+// Frequency label — qd/bid/tid/qid/prn → 하루 N회 / 필요시
+const FREQ_KO: Record<string, string> = {
+  qd:  "하루 1회",
+  bid: "하루 2회",
+  tid: "하루 3회",
+  qid: "하루 4회",
+  prn: "필요시",
+};
+function freqLabel(f: string) {
+  return FREQ_KO[f.toLowerCase()] ?? f;
+}
+const ROUTE_KO: Record<string, string> = {
+  oral:        "경구",
+  injection:   "주사",
+  topical:     "외용",
+  inhalation:  "흡입",
+  sublingual:  "설하",
+  rectal:      "직장",
+};
+function routeLabel(r: string | null) {
+  if (!r) return "—";
+  return ROUTE_KO[r.toLowerCase()] ?? r;
+}
+
+function fmtDate(s: string | null) {
+  if (!s) return "—";
+  return s.length >= 10 ? s.slice(0, 10) : s;
+}
 </script>
 
 <template>
   <div>
-    <p class="text-sm text-muted-foreground mb-4">
-      어르신별 현재 투약 처방. 중단된 항목 토글로 이력 확인 가능.
-    </p>
     <div class="flex items-center gap-3 mb-4 flex-wrap">
       <div class="relative flex-1 min-w-[220px] max-w-sm">
         <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
@@ -145,65 +165,83 @@ const grouped = computed(() => {
       </div>
     </div>
 
-    <div v-if="pending && !paged" class="text-sm text-muted-foreground py-8 text-center">
-      불러오는 중…
-    </div>
-    <div v-else-if="error" class="py-12 text-center text-sm text-destructive">
-      목록을 불러오지 못했습니다.
-      <button class="underline ml-2" @click="refresh()">다시 시도</button>
-    </div>
-    <div v-else-if="grouped.length === 0" class="py-12 text-center text-sm text-muted-foreground">
-      <Pill class="h-10 w-10 mx-auto mb-3 opacity-30" />
-      조건에 맞는 처방이 없습니다.
-    </div>
+    <div class="rounded-xl border bg-card overflow-hidden">
+      <div v-if="pending && !paged" class="py-12 text-center text-sm text-muted-foreground">
+        불러오는 중…
+      </div>
+      <div v-else-if="error" class="py-12 text-center text-sm text-destructive">
+        <AlertCircle class="h-8 w-8 mx-auto mb-2" />
+        목록을 불러오지 못했습니다.
+        <button class="underline ml-2" @click="refresh()">다시 시도</button>
+      </div>
+      <div v-else-if="(paged?.items?.length ?? 0) === 0" class="py-12 text-center text-sm text-muted-foreground">
+        <Pill class="h-10 w-10 mx-auto mb-3 opacity-30" />
+        조건에 맞는 처방이 없습니다.
+      </div>
 
-    <div v-else class="space-y-4">
-      <Card v-for="[residentName, meds] in grouped" :key="residentName">
-        <div class="flex items-center gap-2 mb-3 pb-3 border-b">
-          <Pill class="h-4 w-4 text-primary" />
-          <h3 class="font-semibold">{{ residentName }}</h3>
-          <span v-if="meds[0]?.resident_room" class="text-xs text-muted-foreground">
-            · {{ meds[0].resident_room }}호
-          </span>
-          <span v-if="meds[0]?.branch_name" class="text-xs text-muted-foreground ml-auto">
-            {{ meds[0].branch_name }}
-          </span>
-        </div>
-
-        <table class="w-full text-sm">
-          <thead>
-            <tr class="text-left text-xs text-muted-foreground border-b">
-              <th class="py-2 pr-3 font-medium">약품명</th>
-              <th class="py-2 pr-3 font-medium">용량</th>
-              <th class="py-2 pr-3 font-medium">횟수</th>
-              <th class="py-2 pr-3 font-medium">경로</th>
-              <th class="py-2 pr-3 font-medium">처방의</th>
-              <th class="py-2 font-medium">기간</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr
-              v-for="m in meds"
-              :key="m.id"
-              class="border-b last:border-0"
-              :class="!m.is_active ? 'text-muted-foreground line-through' : ''"
-            >
-              <td class="py-2 pr-3 font-medium">{{ m.name }}</td>
-              <td class="py-2 pr-3">{{ m.dosage }}</td>
-              <td class="py-2 pr-3">{{ m.frequency }}</td>
-              <td class="py-2 pr-3">{{ m.route ?? "—" }}</td>
-              <td class="py-2 pr-3">{{ m.prescriber ?? "—" }}</td>
-              <td class="py-2 text-xs">
-                {{ m.start_date }}
-                <template v-if="m.end_date"> ~ {{ m.end_date }}</template>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </Card>
+      <table v-else class="w-full text-sm">
+        <thead>
+          <tr class="text-left text-xs text-muted-foreground bg-muted/30">
+            <th class="py-3 px-6 font-medium">어르신</th>
+            <th class="py-3 px-3 font-medium">약품</th>
+            <th class="py-3 px-3 font-medium">용량</th>
+            <th class="py-3 px-3 font-medium">횟수</th>
+            <th class="py-3 px-3 font-medium">경로</th>
+            <th class="py-3 px-3 font-medium">처방의</th>
+            <th class="py-3 px-3 font-medium">시작일</th>
+            <th class="py-3 px-6 font-medium">상태</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr
+            v-for="m in paged?.items ?? []"
+            :key="m.id"
+            class="border-t hover:bg-muted/40 cursor-pointer transition-colors"
+            :class="!m.is_active ? 'opacity-60' : ''"
+            @click="navigateTo(`/residents/${m.resident_id}`)"
+          >
+            <td class="py-3 px-6">
+              <div class="font-medium">{{ m.resident_name }}</div>
+              <div class="text-[11px] text-muted-foreground flex items-center gap-1 mt-0.5">
+                <MapPin class="h-3 w-3" />
+                <template v-if="m.resident_room">{{ m.resident_room }}호 ·</template>
+                {{ m.branch_name ?? '—' }}
+              </div>
+            </td>
+            <td class="py-3 px-3">
+              <div class="font-medium" :class="!m.is_active ? 'line-through' : ''">{{ m.name }}</div>
+              <div v-if="m.instructions" class="text-[11px] text-muted-foreground mt-0.5 truncate max-w-[14rem]" :title="m.instructions">
+                {{ m.instructions }}
+              </div>
+            </td>
+            <td class="py-3 px-3 tabular-nums">{{ m.dosage }}</td>
+            <td class="py-3 px-3 text-xs">{{ freqLabel(m.frequency) }}</td>
+            <td class="py-3 px-3 text-xs">{{ routeLabel(m.route) }}</td>
+            <td class="py-3 px-3 text-xs text-muted-foreground">{{ m.prescriber ?? '—' }}</td>
+            <td class="py-3 px-3 text-xs text-muted-foreground tabular-nums">{{ fmtDate(m.start_date) }}</td>
+            <td class="py-3 px-6">
+              <span
+                v-if="m.is_active"
+                class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-primary/10 text-primary"
+              >
+                투약 중
+              </span>
+              <span
+                v-else
+                class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium bg-muted text-muted-foreground"
+              >
+                중단됨
+              </span>
+            </td>
+          </tr>
+        </tbody>
+      </table>
 
       <!-- Pagination -->
-      <div class="flex items-center justify-between text-sm pt-2">
+      <div
+        v-if="(paged?.total ?? 0) > 0"
+        class="px-6 py-3 border-t flex items-center justify-between text-sm"
+      >
         <div class="text-xs text-muted-foreground">
           페이지 {{ paged?.page ?? 1 }} / {{ totalPages }}
         </div>
@@ -218,6 +256,7 @@ const grouped = computed(() => {
             <option :value="200">200/page</option>
           </select>
           <button
+            type="button"
             class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
             :disabled="page <= 1"
             @click="page--"
@@ -225,6 +264,7 @@ const grouped = computed(() => {
             <ChevronLeft class="h-4 w-4" />
           </button>
           <button
+            type="button"
             class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
             :disabled="page >= totalPages"
             @click="page++"
