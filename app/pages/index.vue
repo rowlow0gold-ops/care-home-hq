@@ -2,7 +2,19 @@
 import {
   Users, AlertCircle, ClipboardList, UserCheck, Wallet, Building2, Filter,
   ChevronLeft, ChevronRight, ChevronRight as ChevRight,
+  TrendingUp, BarChart3,
 } from "@lucide/vue";
+import { Line, Bar } from "vue-chartjs";
+import {
+  Chart as ChartJS,
+  CategoryScale, LinearScale, PointElement, LineElement, BarElement,
+  Title, Tooltip, Legend, Filler,
+} from "chart.js";
+
+ChartJS.register(
+  CategoryScale, LinearScale, PointElement, LineElement, BarElement,
+  Title, Tooltip, Legend, Filler,
+);
 
 useHead({ title: "대시보드 · 케어닥 HQ" });
 
@@ -40,8 +52,16 @@ interface DashboardSummary {
 
 const api = useApi();
 
-// ----- Top-level filters: branch + date ----------------------------------
+// ----- Role gate --------------------------------------------------------
+// Only 본부 (hq / super_admin) gets the filter row and the charts.
+// Branch users see their own branch only — RLS does this server-side; the
+// branch filter UI is hidden so they can't even try to pivot.
 const { me } = useAuth();
+const isHq = computed(
+  () => me.value?.role === "hq" || me.value?.role === "super_admin",
+);
+
+// ----- Top-level filters: branch + date ---------------------------------
 const initialBranch =
   me.value?.role === "branch_manager" && me.value.branch_id
     ? me.value.branch_id
@@ -96,6 +116,20 @@ const { data, pending, error } = await useAsyncData(
   // Watch the source refs directly — the computed dateRange doesn't always
   // trigger reliably across browsers.
   { watch: [dateScope, selectedMonth, selectedYear] },
+);
+
+// Historical billing runs for the HQ chart (last 12 months). Skipped for
+// non-HQ users since they don't render the charts anyway.
+interface RawBillingRun {
+  id: string;
+  branch_id: string;
+  year_month: string;
+  status: string;
+  total_amount: number | null;
+}
+const { data: allRuns } = await useAsyncData(
+  "dash-all-runs",
+  () => isHq.value ? api.get<RawBillingRun[]>("/v1/billing/runs") : Promise.resolve([] as RawBillingRun[]),
 );
 
 // ----- 청구 매출 — derived from the (already window-scoped) summary -------
@@ -233,6 +267,108 @@ function fmtNum(n: number | null | undefined) {
   return n.toLocaleString("ko-KR");
 }
 
+// =========================================================================
+// HQ-only charts
+// =========================================================================
+
+// Monthly revenue trend — last 12 months of completed billing summed across
+// branches. Respects the top-level branch filter so an HQ user inspecting a
+// single branch sees that branch's trend.
+const monthlyTrend = computed(() => {
+  const map = new Map<string, number>();
+  for (const r of allRuns.value ?? []) {
+    if (r.status !== "completed" || r.total_amount === null) continue;
+    if (branchFilter.value && r.branch_id !== branchFilter.value) continue;
+    map.set(r.year_month, (map.get(r.year_month) ?? 0) + (r.total_amount ?? 0));
+  }
+  const months = [...map.keys()].sort().slice(-12);
+  return {
+    labels: months.map((m) => {
+      const [y, mm] = m.split("-");
+      return `${y}.${mm}`;
+    }),
+    datasets: [
+      {
+        label: "월별 매출",
+        data: months.map((m) => map.get(m) ?? 0),
+        borderColor: "hsl(158, 70%, 32%)",
+        backgroundColor: "hsla(158, 70%, 32%, 0.12)",
+        tension: 0.3,
+        fill: true,
+        pointRadius: 3,
+        pointHoverRadius: 5,
+      },
+    ],
+  };
+});
+
+// Top branches by billing in the active window. Single-branch view => empty.
+const topBranches = computed(() => {
+  if (branchFilter.value) return { labels: [], datasets: [] };
+  const items = (data.value?.branches ?? [])
+    .map((b) => ({ name: b.name, amount: b.last_billing_amount ?? 0 }))
+    .filter((b) => b.amount > 0)
+    .sort((a, b) => b.amount - a.amount)
+    .slice(0, 10);
+  return {
+    labels: items.map((b) => b.name),
+    datasets: [
+      {
+        label: "지점별 매출",
+        data: items.map((b) => b.amount),
+        backgroundColor: "hsla(158, 70%, 32%, 0.7)",
+        borderRadius: 4,
+      },
+    ],
+  };
+});
+
+// Shared chart options — KRW formatting on the y-axis tooltips.
+function krwShort(v: number) {
+  if (v >= 100_000_000) return `${(v / 100_000_000).toFixed(1)}억`;
+  if (v >= 10_000)      return `${(v / 10_000).toFixed(0)}만`;
+  return v.toLocaleString("ko-KR");
+}
+const lineOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        label: (ctx: any) => `₩${(ctx.parsed.y as number).toLocaleString("ko-KR")}`,
+      },
+    },
+  },
+  scales: {
+    y: {
+      ticks: { callback: (v: any) => `₩${krwShort(Number(v))}` },
+      grid:  { color: "hsla(0, 0%, 50%, 0.08)" },
+    },
+    x: { grid: { display: false } },
+  },
+} as const;
+const barOpts = {
+  responsive: true,
+  maintainAspectRatio: false,
+  indexAxis: "y" as const,
+  plugins: {
+    legend: { display: false },
+    tooltip: {
+      callbacks: {
+        label: (ctx: any) => `₩${(ctx.parsed.x as number).toLocaleString("ko-KR")}`,
+      },
+    },
+  },
+  scales: {
+    x: {
+      ticks: { callback: (v: any) => `₩${krwShort(Number(v))}` },
+      grid:  { color: "hsla(0, 0%, 50%, 0.08)" },
+    },
+    y: { grid: { display: false } },
+  },
+} as const;
+
 // ----- Pagination for 지점별 현황 ----------------------------------------
 const tablePage = ref(1);
 const tablePageSize = ref(10);
@@ -266,7 +402,7 @@ const tablePageEnd = computed(() =>
             : "전 지점 운영 현황 한눈에 보기" }}
         </p>
       </div>
-      <div class="flex items-center gap-2 flex-wrap">
+      <div v-if="isHq" class="flex items-center gap-2 flex-wrap">
         <Filter class="h-4 w-4 text-muted-foreground" />
         <select
           v-model="branchFilter"
@@ -359,6 +495,46 @@ const tablePageEnd = computed(() =>
           </div>
         </div>
       </NuxtLink>
+    </div>
+
+    <!-- HQ-only charts -->
+    <div v-if="isHq" class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+      <!-- Monthly revenue trend -->
+      <div class="rounded-xl border bg-card p-5">
+        <div class="flex items-center gap-2 mb-3">
+          <TrendingUp class="h-4 w-4 text-primary" />
+          <h3 class="text-sm font-semibold">월별 매출 추이</h3>
+          <span class="text-xs text-muted-foreground ml-auto">
+            <template v-if="branchFilter">
+              {{ data?.branches?.find((b) => b.id === branchFilter)?.name ?? '' }} · 최근 12개월
+            </template>
+            <template v-else>전 지점 · 최근 12개월</template>
+          </span>
+        </div>
+        <div class="h-64 relative">
+          <Line v-if="(monthlyTrend.datasets[0]?.data?.length ?? 0) > 0"
+                :data="monthlyTrend" :options="lineOpts" />
+          <div v-else class="absolute inset-0 grid place-items-center text-sm text-muted-foreground">
+            완료된 청구 데이터가 없습니다
+          </div>
+        </div>
+      </div>
+
+      <!-- Top branches by revenue (window-scoped, HQ-wide only) -->
+      <div class="rounded-xl border bg-card p-5">
+        <div class="flex items-center gap-2 mb-3">
+          <BarChart3 class="h-4 w-4 text-primary" />
+          <h3 class="text-sm font-semibold">{{ sinceLabel }} 지점별 매출 (상위 10)</h3>
+        </div>
+        <div class="h-64 relative">
+          <Bar v-if="!branchFilter && (topBranches.datasets[0]?.data?.length ?? 0) > 0"
+               :data="topBranches" :options="barOpts" />
+          <div v-else class="absolute inset-0 grid place-items-center text-sm text-muted-foreground">
+            <template v-if="branchFilter">단일 지점에서는 표시되지 않습니다</template>
+            <template v-else>해당 기간 청구 데이터가 없습니다</template>
+          </div>
+        </div>
+      </div>
     </div>
 
     <!-- Branch table -->
