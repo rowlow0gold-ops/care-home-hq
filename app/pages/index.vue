@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   Users, AlertCircle, ClipboardList, UserCheck, Wallet, Building2, Filter,
-  ChevronLeft, ChevronRight, ChevronRight as ChevRight,
+  ChevronLeft, ChevronRight, ChevronRight as ChevRight, Calendar,
 } from "@lucide/vue";
 
 useHead({ title: "대시보드 · 케어닥 HQ" });
@@ -298,13 +298,15 @@ const tablePageEnd = computed(() =>
           <option value="year">연도별</option>
           <option value="all">전체 기간</option>
         </select>
-        <input
-          v-if="dateScope === 'month'"
-          v-model="selectedMonth"
-          type="month"
-          :max="`${now.getFullYear()}-${pad2(now.getMonth() + 1)}`"
-          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-        >
+        <div v-if="dateScope === 'month'" class="relative">
+          <Calendar class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground pointer-events-none" />
+          <input
+            v-model="selectedMonth"
+            type="month"
+            :max="`${now.getFullYear()}-${pad2(now.getMonth() + 1)}`"
+            class="h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 [color-scheme:light] dark:[color-scheme:dark] [&::-webkit-calendar-picker-indicator]:opacity-0 [&::-webkit-calendar-picker-indicator]:cursor-pointer [&::-webkit-calendar-picker-indicator]:absolute [&::-webkit-calendar-picker-indicator]:inset-0 [&::-webkit-calendar-picker-indicator]:w-full [&::-webkit-calendar-picker-indicator]:h-full"
+          >
+        </div>
         <select
           v-else-if="dateScope === 'year'"
           v-model.number="selectedYear"
