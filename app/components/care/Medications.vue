@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { Pill, Search, Loader2, ChevronLeft, ChevronRight } from "@lucide/vue";
+import { Pill, Search, Loader2, ChevronLeft, ChevronRight, Building2 } from "@lucide/vue";
+
+// HQ sees all branches; everyone else is pinned to their own.
+const { me } = useAuth();
+const isHq = computed(
+  () => me.value?.role === "hq" || me.value?.role === "super_admin",
+);
 
 interface Branch { id: string; name: string }
 interface MedicationRow {
@@ -102,12 +108,23 @@ const grouped = computed(() => {
         >
       </div>
       <select
+        v-if="isHq"
         v-model="branchFilter"
         class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
       >
         <option value="">전체 지점</option>
         <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
       </select>
+      <div
+        v-else
+        class="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border bg-muted/30 text-sm"
+        title="본인 소속 지점 투약만 조회할 수 있습니다"
+      >
+        <Building2 class="h-3.5 w-3.5 text-primary" />
+        <span class="font-medium">
+          {{ dashboard?.branches?.find((b) => b.id === branchFilter)?.name ?? '내 지점' }}
+        </span>
+      </div>
       <label class="flex items-center gap-2 text-sm cursor-pointer">
         <input v-model="showStopped" type="checkbox" class="rounded border-input">
         중단된 처방 포함
