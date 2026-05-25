@@ -61,6 +61,7 @@ interface Person {
   position_ko: string;
   employment_type: string;
   employment_type_ko: string;
+  hired_on: string | null;
   is_inactive: boolean;
 }
 
@@ -137,11 +138,28 @@ const pageEnd = computed(() =>
 const tone: Record<string, string> = {
   regular: "bg-primary/10 text-primary",
   contract: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
-  part_time: "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-200",
-  temporary: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
-  arbeit: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-200",
+  // 아르바이트 (was 시간제) — pink so it visually pops vs 정규직/계약직
+  part_time: "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-200",
+  temporary: "bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200",
   consultant: "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200",
 };
+
+// 경력 — years+months since hired_on. e.g. "2년 3개월" / "8개월" / "신입"
+function tenureLabel(hired: string | null): string {
+  if (!hired) return "—";
+  const start = new Date(hired);
+  if (isNaN(start.getTime())) return "—";
+  const now = new Date();
+  let months = (now.getFullYear() - start.getFullYear()) * 12 + (now.getMonth() - start.getMonth());
+  if (now.getDate() < start.getDate()) months--;
+  if (months < 0) return "—";
+  if (months < 1) return "신입";
+  const yrs = Math.floor(months / 12);
+  const mos = months % 12;
+  if (yrs === 0) return `${mos}개월`;
+  if (mos === 0) return `${yrs}년`;
+  return `${yrs}년 ${mos}개월`;
+}
 
 // =============================================================================
 // 근무 일정
@@ -179,11 +197,42 @@ function roleLabel(r: OnDuty): string {
   return ROLE_KO[r.user_role] ?? r.user_role;
 }
 
-function todayLocal() {
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-}
-const scheduleDate = ref(todayLocal());
+// =============================================================================
+// 근무 일정 date filter — matches the dashboard's year/month idiom plus a 일
+// select so the user keeps daily resolution. Branch selector is HQ-only;
+// branch managers see only their own branch (RLS also enforces this).
+// =============================================================================
+const { me: meSchedule } = useAuth();
+const isHqSchedule = computed(
+  () => meSchedule.value?.role === "hq" || meSchedule.value?.role === "super_admin",
+);
+
+const _today = new Date();
+const scheduleYear  = ref<number>(_today.getFullYear());
+const scheduleMonth = ref<number>(_today.getMonth() + 1);   // 1-12
+const scheduleDay   = ref<number>(_today.getDate());
+
+const scheduleYearOptions  = Array.from({ length: 5 },  (_, i) => _today.getFullYear() - i);
+const scheduleMonthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
+// Day options depend on the selected year/month
+const scheduleDayOptions = computed(() => {
+  const last = new Date(scheduleYear.value, scheduleMonth.value, 0).getDate();
+  return Array.from({ length: last }, (_, i) => i + 1);
+});
+// Keep `day` valid after switching to a shorter month (e.g. Jan 31 → Feb)
+watch([scheduleYear, scheduleMonth], () => {
+  const last = scheduleDayOptions.value[scheduleDayOptions.value.length - 1] ?? 28;
+  if (scheduleDay.value > last) scheduleDay.value = last;
+});
+
+const scheduleDate = computed(() => {
+  const yyyy = scheduleYear.value;
+  const mm   = String(scheduleMonth.value).padStart(2, "0");
+  const dd   = String(scheduleDay.value).padStart(2, "0");
+  return `${yyyy}-${mm}-${dd}`;
+});
+
+// HQ can pivot across branches; non-HQ is pinned to their own.
 const scheduleBranch = ref<string>(useDefaultBranch());
 
 const { data: shifts, pending: shiftsPending } = await useAsyncData(
@@ -193,7 +242,7 @@ const { data: shifts, pending: shiftsPending } = await useAsyncData(
       date: scheduleDate.value,
       branch_id: scheduleBranch.value || undefined,
     }),
-  { watch: [scheduleDate, scheduleBranch] },
+  { watch: [scheduleYear, scheduleMonth, scheduleDay, scheduleBranch] },
 );
 
 const grouped = computed(() => {
@@ -448,7 +497,9 @@ function fmtDate(iso: string) {
             @keyup.enter="applyFilters"
           >
         </div>
+        <!-- HQ: branch dropdown · BM: locked badge -->
         <select
+          v-if="isHqSchedule"
           v-model="branchFilter"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
@@ -456,6 +507,16 @@ function fmtDate(iso: string) {
           <option value="__hq__">본사만</option>
           <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
         </select>
+        <div
+          v-else
+          class="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border bg-muted/30 text-sm"
+          title="본인 소속 지점 직원만 조회할 수 있습니다"
+        >
+          <Building2 class="h-3.5 w-3.5 text-primary" />
+          <span class="font-medium">
+            {{ dashboard?.branches?.find((b) => b.id === branchFilter)?.name ?? '내 지점' }}
+          </span>
+        </div>
         <select
           v-model="empFilter"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
@@ -463,8 +524,7 @@ function fmtDate(iso: string) {
           <option value="">전체 고용형태</option>
           <option value="regular">정규직</option>
           <option value="contract">계약직</option>
-          <option value="part_time">시간제</option>
-          <option value="arbeit">아르바이트</option>
+          <option value="part_time">아르바이트</option>
           <option value="consultant">위촉직</option>
         </select>
         <button
@@ -493,6 +553,7 @@ function fmtDate(iso: string) {
             <th class="py-3 px-3 font-medium">소속</th>
             <th class="py-3 px-3 font-medium">직책</th>
             <th class="py-3 px-3 font-medium">고용</th>
+            <th class="py-3 px-3 font-medium">경력</th>
             <th class="py-3 px-3 font-medium">이메일</th>
             <th class="py-3 px-6 font-medium">전화</th>
           </tr>
@@ -520,11 +581,14 @@ function fmtDate(iso: string) {
                 {{ p.employment_type_ko }}
               </span>
             </td>
+            <td class="py-3 px-3 text-muted-foreground tabular-nums text-xs" :title="p.hired_on ?? ''">
+              {{ tenureLabel(p.hired_on) }}
+            </td>
             <td class="py-3 px-3 text-muted-foreground font-mono text-xs truncate max-w-[14rem]">{{ p.email }}</td>
             <td class="py-3 px-6 text-muted-foreground">{{ p.phone ?? "—" }}</td>
           </tr>
           <tr v-if="filtered.length === 0">
-            <td colspan="6" class="py-12 text-center text-muted-foreground">조건에 맞는 직원이 없습니다.</td>
+            <td colspan="7" class="py-12 text-center text-muted-foreground">조건에 맞는 직원이 없습니다.</td>
           </tr>
         </tbody>
       </table>
@@ -575,14 +639,45 @@ function fmtDate(iso: string) {
           <span class="font-medium text-foreground">{{ scheduleHeaderDate }}</span>
           · 24시간 3교대 · 주간 06–14 / 저녁 14–22 / 야간 22–06
         </p>
-        <div class="flex items-center gap-2">
-          <Input v-model="scheduleDate" type="date" class="w-40" />
+        <div class="flex items-center gap-2 flex-wrap">
+          <!-- HQ: branch dropdown · BM: locked badge -->
           <select
+            v-if="isHqSchedule"
             v-model="scheduleBranch"
             class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
           >
             <option value="">전체 지점</option>
             <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
+          </select>
+          <div
+            v-else
+            class="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border bg-muted/30 text-sm"
+            title="본인 소속 지점만 조회할 수 있습니다"
+          >
+            <Building2 class="h-3.5 w-3.5 text-primary" />
+            <span class="font-medium">
+              {{ dashboard?.branches?.find((b) => b.id === scheduleBranch)?.name ?? '내 지점' }}
+            </span>
+          </div>
+
+          <!-- Year / Month / Day — dashboard-style selects -->
+          <select
+            v-model.number="scheduleYear"
+            class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          >
+            <option v-for="y in scheduleYearOptions" :key="y" :value="y">{{ y }}년</option>
+          </select>
+          <select
+            v-model.number="scheduleMonth"
+            class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          >
+            <option v-for="m in scheduleMonthOptions" :key="m" :value="m">{{ m }}월</option>
+          </select>
+          <select
+            v-model.number="scheduleDay"
+            class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          >
+            <option v-for="d in scheduleDayOptions" :key="d" :value="d">{{ d }}일</option>
           </select>
         </div>
       </div>
@@ -785,7 +880,9 @@ function fmtDate(iso: string) {
           <option value="rejected">반려됨</option>
           <option value="">전체 상태</option>
         </select>
+        <!-- HQ: branch dropdown · BM: locked badge -->
         <select
+          v-if="isHqSchedule"
           v-model="leaveBranch"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
@@ -793,6 +890,16 @@ function fmtDate(iso: string) {
           <option value="__hq__">본사만</option>
           <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
         </select>
+        <div
+          v-else
+          class="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border bg-muted/30 text-sm"
+          title="본인 소속 지점만 조회할 수 있습니다"
+        >
+          <Building2 class="h-3.5 w-3.5 text-primary" />
+          <span class="font-medium">
+            {{ dashboard?.branches?.find((b) => b.id === leaveBranch)?.name ?? '내 지점' }}
+          </span>
+        </div>
         <button
           type="button"
           @click="applyLeaveFilters"
