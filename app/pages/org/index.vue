@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { Crown, Briefcase, Building2, Stethoscope, HeartPulse, Utensils, Activity, Hammer, Car, ChevronRight, Users } from "@lucide/vue";
+import {
+  Crown, Briefcase, Building2, Stethoscope, HeartPulse, Utensils, Activity,
+  Hammer, Car, ChevronRight, Users, Layers,
+} from "@lucide/vue";
 
 useHead({ title: "조직도 · 케어닥 HQ" });
 
@@ -18,36 +21,80 @@ interface OrgPerson {
   contract_end_on: string | null;
   is_inactive: boolean;
 }
+interface BranchInfo {
+  id: string;
+  name: string;
+  branch_type: "hub" | "satellite";
+  parent_branch_id: string | null;
+  resident_count: number;
+  staff_on_duty: number;
+  services: string[];
+}
 
 const api = useApi();
 const router = useRouter();
-const { data, pending, error } = await useAsyncData("org-chart", () =>
-  api.get<OrgPerson[]>("/v1/org/chart"),
-);
 
-// HQ vs branches
-const hqPeople = computed(() => (data.value ?? []).filter((p) => !p.branch_id));
-const branchGroups = computed(() => {
-  const m = new Map<string, { name: string; people: OrgPerson[] }>();
-  for (const p of data.value ?? []) {
+// /v1/org/tree returns the full company regardless of caller role —
+// 조직도 is intentionally a "trust" view (see backend).
+const [{ data: people, pending: peoplePending, error }, { data: dashboard, pending: branchesPending }] =
+  await Promise.all([
+    useAsyncData("org-tree", () => api.get<OrgPerson[]>("/v1/org/tree")),
+    useAsyncData("org-branches", () => api.get<{ branches: BranchInfo[] }>("/v1/dashboard/summary")),
+  ]);
+const pending = computed(() => peoplePending.value || branchesPending.value);
+
+// HQ users have branch_id = null
+const hqPeople = computed(() => (people.value ?? []).filter((p) => !p.branch_id));
+
+// Staff per branch (id → people)
+const peopleByBranch = computed(() => {
+  const m = new Map<string, OrgPerson[]>();
+  for (const p of people.value ?? []) {
     if (!p.branch_id) continue;
-    if (!m.has(p.branch_id)) m.set(p.branch_id, { name: p.branch_name ?? "—", people: [] });
-    m.get(p.branch_id)!.people.push(p);
+    (m.get(p.branch_id) ?? m.set(p.branch_id, []).get(p.branch_id)!).push(p);
   }
-  return Array.from(m.entries()).sort(([, a], [, b]) => a.name.localeCompare(b.name, "ko"));
+  return m;
 });
 
-// Pretty grouping per branch by position bucket
-function bucket(people: OrgPerson[]) {
+// All branches keyed by id
+const branchById = computed(() => {
+  const m = new Map<string, BranchInfo>();
+  for (const b of dashboard.value?.branches ?? []) m.set(b.id, b);
+  return m;
+});
+
+// Hubs (sorted by name) + their child satellites
+interface HubGroup { hub: BranchInfo; satellites: BranchInfo[] }
+const hubs = computed<HubGroup[]>(() => {
+  const all = dashboard.value?.branches ?? [];
+  const huburned = all.filter((b) => b.branch_type === "hub")
+                      .sort((a, b) => a.name.localeCompare(b.name, "ko"));
+  return huburned.map((hub) => ({
+    hub,
+    satellites: all
+      .filter((b) => b.branch_type === "satellite" && b.parent_branch_id === hub.id)
+      .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+  }));
+});
+
+// Orphan satellites (no parent assigned yet) — shown as a separate group
+const orphans = computed<BranchInfo[]>(() =>
+  (dashboard.value?.branches ?? [])
+    .filter((b) => b.branch_type === "satellite" && !b.parent_branch_id)
+    .sort((a, b) => a.name.localeCompare(b.name, "ko")),
+);
+
+// Grouping helper for the inline branch card
+function bucket(persons: OrgPerson[]) {
   const groups = [
     { label: "센터장",   positions: ["branch_manager", "office_manager"] },
     { label: "의료/복지", positions: ["nurse_rn", "nurse_assistant", "social_worker", "doctor_visiting", "dietitian", "physical_therapist", "occupational_therapist"] },
     { label: "케어",     positions: ["caregiver"] },
-    { label: "지원",     positions: ["cook", "cleaner", "driver", "other"] },
+    { label: "지원",     positions: ["cook", "cleaner", "driver", "receptionist", "other"] },
   ];
   return groups.map((g) => ({
     label: g.label,
-    people: people.filter((p) => g.positions.includes(p.position)),
+    people: persons.filter((p) => g.positions.includes(p.position)),
   })).filter((g) => g.people.length > 0);
 }
 
@@ -64,7 +111,7 @@ const positionIcon: Record<string, any> = {
 const employmentTone: Record<string, string> = {
   regular:        "bg-primary/10 text-primary",
   contract:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
-  part_time:      "bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-200",
+  part_time:      "bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-200",
   temporary:      "bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200",
   consultant:     "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200",
 };
@@ -76,15 +123,11 @@ const popoverPos = ref({ x: 0, y: 0 });
 function onHover(p: OrgPerson, e: MouseEvent) {
   hoveredPerson.value = p;
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-  // Estimated popover dimensions
   const W = 280, H = 220;
   const vw = window.innerWidth, vh = window.innerHeight;
-  // Default: right of the element
   let x = rect.right + 8;
   let y = rect.top;
-  // Flip horizontally if it would overflow right edge
   if (x + W > vw - 8) x = Math.max(8, rect.left - W - 8);
-  // Flip vertically if it would overflow bottom edge
   if (y + H > vh - 8) y = Math.max(8, rect.bottom - H);
   popoverPos.value = { x, y };
 }
@@ -104,7 +147,7 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
     <header class="mb-6">
       <h1 class="text-3xl font-bold tracking-tight">조직도</h1>
       <p class="text-sm text-muted-foreground mt-1">
-        본사부터 각 지점까지 트리 구조. 직원에 마우스를 올리면 상세, 지점 카드를 클릭하면 지점 상세 페이지로 이동합니다.
+        본사 → 허브(광역센터) → 위성센터 3계층. 모든 직원이 전사 구조를 확인할 수 있습니다.
       </p>
     </header>
 
@@ -118,86 +161,156 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
     </div>
 
     <template v-else>
-      <!-- TREE STRUCTURE -->
-      <div class="relative">
-        <!-- HQ root -->
-        <div class="rounded-xl border-2 border-primary bg-primary/5 p-5 mb-2 max-w-xl mx-auto shadow-md">
-          <div class="flex items-center gap-3 mb-3">
-            <div class="h-10 w-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
-              <Crown class="h-5 w-5" />
-            </div>
-            <div>
-              <div class="text-base font-bold">본사 (HQ)</div>
-              <div class="text-xs text-muted-foreground">{{ hqPeople.length }}명 · 케어닥 전사 운영</div>
-            </div>
+      <!-- HQ -->
+      <div class="rounded-xl border-2 border-primary bg-primary/5 p-5 mb-2 max-w-xl mx-auto shadow-md">
+        <div class="flex items-center gap-3 mb-3">
+          <div class="h-10 w-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
+            <Crown class="h-5 w-5" />
           </div>
-          <div class="flex flex-wrap gap-1.5">
-            <button
-              v-for="p in hqPeople"
-              :key="p.id"
-              class="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors hover:ring-1 hover:ring-primary/40"
-              :class="employmentTone[p.employment_type] ?? 'bg-muted'"
-              @mouseenter="onHover(p, $event)"
-              @mouseleave="onLeave"
-              @click="openPerson(p, $event)"
-            >
-              <component :is="positionIcon[p.position] ?? Briefcase" class="h-3 w-3 opacity-70" />
-              <span class="font-medium">{{ p.full_name }}</span>
-              <span class="opacity-70">· {{ p.position_ko }}</span>
-            </button>
+          <div>
+            <div class="text-base font-bold">본사 (HQ)</div>
+            <div class="text-xs text-muted-foreground">{{ hqPeople.length }}명 · 케어닥 전사 운영</div>
+          </div>
+        </div>
+        <div class="flex flex-wrap gap-1.5">
+          <button
+            v-for="p in hqPeople"
+            :key="p.id"
+            class="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors hover:ring-1 hover:ring-primary/40"
+            :class="employmentTone[p.employment_type] ?? 'bg-muted'"
+            @mouseenter="onHover(p, $event)"
+            @mouseleave="onLeave"
+            @click="openPerson(p, $event)"
+          >
+            <component :is="positionIcon[p.position] ?? Briefcase" class="h-3 w-3 opacity-70" />
+            <span class="font-medium">{{ p.full_name }}</span>
+            <span class="opacity-70">· {{ p.position_ko }}</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- vertical connector -->
+      <div class="h-6 w-0.5 bg-border mx-auto" />
+
+      <!-- One row per HUB, with that hub's satellites nested below -->
+      <div class="space-y-5">
+        <div
+          v-for="g in hubs"
+          :key="g.hub.id"
+          class="rounded-2xl border bg-muted/30 p-4"
+        >
+          <!-- Hub card -->
+          <button
+            class="block w-full text-left rounded-xl border-2 border-primary/40 bg-card hover:border-primary hover:shadow-md transition-all p-4 focus:outline-none focus:ring-4 focus:ring-primary/15 group relative"
+            @click="openBranch(g.hub.id)"
+          >
+            <div class="flex items-center gap-2 mb-3">
+              <div class="h-8 w-8 rounded-md bg-primary/10 text-primary flex items-center justify-center">
+                <Building2 class="h-4 w-4" />
+              </div>
+              <div class="flex-1">
+                <div class="font-semibold flex items-center gap-2">
+                  {{ g.hub.name }}
+                  <span class="text-[10px] font-semibold uppercase tracking-wider rounded px-1.5 py-0.5 bg-primary/15 text-primary">
+                    거점 Hub
+                  </span>
+                </div>
+                <div class="text-xs text-muted-foreground mt-0.5">
+                  <Users class="h-3 w-3 inline-block mr-0.5" />
+                  총 {{ (peopleByBranch.get(g.hub.id) ?? []).length }}명 · 어르신 {{ g.hub.resident_count }}명
+                  · 산하 위성 {{ g.satellites.length }}곳
+                </div>
+              </div>
+              <ChevronRight class="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+            </div>
+
+            <!-- Hub's own staff buckets -->
+            <div class="space-y-2">
+              <div v-for="b in bucket(peopleByBranch.get(g.hub.id) ?? [])" :key="b.label">
+                <div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
+                  {{ b.label }} ({{ b.people.length }})
+                </div>
+                <div class="flex flex-wrap gap-1">
+                  <button
+                    v-for="p in b.people"
+                    :key="p.id"
+                    class="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:ring-1 hover:ring-primary/40"
+                    :class="employmentTone[p.employment_type] ?? 'bg-muted'"
+                    @mouseenter.stop="onHover(p, $event)"
+                    @mouseleave="onLeave"
+                    @click="openPerson(p, $event)"
+                  >
+                    {{ p.full_name }}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </button>
+
+          <!-- Satellites under this hub -->
+          <div v-if="g.satellites.length > 0" class="mt-3 ml-6 pl-4 border-l-2 border-primary/20 space-y-3">
+            <div class="text-xs text-muted-foreground flex items-center gap-1 -ml-7 mt-1">
+              <Layers class="h-3.5 w-3.5 text-primary/60" />
+              <span class="font-medium">{{ g.satellites.length }}개 위성센터</span>
+            </div>
+            <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <button
+                v-for="sat in g.satellites"
+                :key="sat.id"
+                class="text-left rounded-xl border bg-card hover:border-primary hover:shadow-sm transition-all p-3 focus:outline-none focus:ring-4 focus:ring-primary/15 group"
+                @click="openBranch(sat.id)"
+              >
+                <div class="flex items-center gap-2 mb-2">
+                  <Building2 class="h-3.5 w-3.5 text-muted-foreground" />
+                  <div class="font-medium text-sm flex-1">{{ sat.name }}</div>
+                  <span class="text-[9px] font-semibold uppercase tracking-wider rounded px-1 py-0.5 bg-muted text-muted-foreground">
+                    Sat
+                  </span>
+                  <ChevronRight class="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
+                </div>
+                <div class="text-[11px] text-muted-foreground mb-2">
+                  <Users class="h-3 w-3 inline-block mr-0.5" />
+                  {{ (peopleByBranch.get(sat.id) ?? []).length }}명
+                </div>
+                <div class="flex flex-wrap gap-1">
+                  <button
+                    v-for="p in (peopleByBranch.get(sat.id) ?? []).slice(0, 6)"
+                    :key="p.id"
+                    class="px-1.5 py-0.5 rounded text-[10px] transition-colors hover:ring-1 hover:ring-primary/40"
+                    :class="employmentTone[p.employment_type] ?? 'bg-muted'"
+                    @mouseenter.stop="onHover(p, $event)"
+                    @mouseleave="onLeave"
+                    @click="openPerson(p, $event)"
+                  >
+                    {{ p.full_name }}
+                  </button>
+                  <span
+                    v-if="(peopleByBranch.get(sat.id) ?? []).length > 6"
+                    class="text-[10px] text-muted-foreground self-center"
+                  >
+                    +{{ (peopleByBranch.get(sat.id) ?? []).length - 6 }}
+                  </span>
+                </div>
+              </button>
+            </div>
           </div>
         </div>
 
-        <!-- vertical connector -->
-        <div class="h-6 w-0.5 bg-border mx-auto" />
-
-        <!-- horizontal connector + branches -->
-        <div class="relative">
-          <!-- Horizontal line spanning the branches grid -->
-          <div class="absolute top-0 left-1/2 -translate-x-1/2 h-0.5 bg-border" style="width: calc(100% - 16px)" />
-
-          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3 pt-6">
+        <!-- Orphan satellites (no hub) — only if any exist -->
+        <div v-if="orphans.length > 0" class="rounded-2xl border bg-muted/30 p-4">
+          <div class="text-xs font-medium text-amber-600 mb-3 flex items-center gap-1">
+            <Layers class="h-3.5 w-3.5" /> 미배정 위성센터 ({{ orphans.length }})
+          </div>
+          <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <button
-              v-for="[branchId, group] in branchGroups"
-              :key="branchId"
-              class="text-left rounded-xl border bg-card hover:border-primary hover:shadow-md transition-all p-4 group focus:outline-none focus:ring-4 focus:ring-primary/15 relative"
-              @click="openBranch(branchId)"
+              v-for="sat in orphans"
+              :key="sat.id"
+              class="text-left rounded-xl border bg-card hover:border-primary p-3"
+              @click="openBranch(sat.id)"
             >
-              <!-- connector dot -->
-              <div class="absolute -top-3 left-1/2 -translate-x-1/2 h-3 w-0.5 bg-border" />
-              <div class="absolute -top-3.5 left-1/2 -translate-x-1/2 h-1.5 w-1.5 rounded-full bg-primary" />
-
-              <div class="flex items-center gap-2 mb-3">
-                <Building2 class="h-4 w-4 text-primary" />
-                <div class="font-semibold flex-1">{{ group.name }}</div>
-                <ChevronRight class="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
-              </div>
-
-              <div class="text-xs text-muted-foreground mb-3">
-                <Users class="h-3 w-3 inline-block mr-0.5" />
-                총 {{ group.people.length }}명
-              </div>
-
-              <!-- Buckets -->
-              <div class="space-y-2">
-                <div v-for="b in bucket(group.people)" :key="b.label">
-                  <div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                    {{ b.label }} ({{ b.people.length }})
-                  </div>
-                  <div class="flex flex-wrap gap-1">
-                    <button
-                      v-for="p in b.people"
-                      :key="p.id"
-                      class="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:ring-1 hover:ring-primary/40"
-                      :class="employmentTone[p.employment_type] ?? 'bg-muted'"
-                      @mouseenter.stop="onHover(p, $event)"
-                      @mouseleave="onLeave"
-                      @click="openPerson(p, $event)"
-                    >
-                      {{ p.full_name }}
-                    </button>
-                  </div>
-                </div>
+              <div class="font-medium text-sm">{{ sat.name }}</div>
+              <div class="text-[11px] text-muted-foreground mt-1">
+                {{ (peopleByBranch.get(sat.id) ?? []).length }}명
               </div>
             </button>
           </div>
