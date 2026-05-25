@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   LayoutDashboard,
-  Users,
+  HeartPulse,
   FileBarChart,
   UsersRound,
   Settings,
@@ -13,10 +13,10 @@ import {
 const { me, logout } = useAuth();
 const route = useRoute();
 
-// 케어 기록 + 투약 are now tabs inside 어르신 상세 페이지 (no top-level item)
+// 케어 관리 hosts the 어르신 / 케어 기록 / 투약 tabs in one place.
 const nav = computed(() => [
   { to: "/", label: "대시보드", icon: LayoutDashboard, minRole: 1 },
-  { to: "/residents", label: "어르신", icon: Users, minRole: 1 },
+  { to: "/care", label: "케어 관리", icon: HeartPulse, minRole: 1 },
   { to: "/staff", label: "직원 관리", icon: UsersRound, minRole: 3 },
   { to: "/org", label: "조직도", icon: Network, minRole: 2 },
   { to: "/reports", label: "보고서", icon: FileBarChart, minRole: 3 },
@@ -46,6 +46,9 @@ const roleLabel: Record<string, string> = {
 
 function isActive(to: string) {
   if (to === "/") return route.path === "/";
+  // 케어 관리: also light up when the user is on a resident detail page
+  // (which still lives at /residents/:id) so the nav stays in context.
+  if (to === "/care" && route.path.startsWith("/residents/")) return true;
   return route.path === to || route.path.startsWith(to + "/");
 }
 

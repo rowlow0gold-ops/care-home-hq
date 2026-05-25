@@ -56,30 +56,36 @@ const initialBranch =
     : "";
 const branchFilter = ref<string>(initialBranch);
 
-// Date filter — "이후 / since". Default: 7 days ago.
-function todayMinusDays(n: number): string {
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return d.toISOString().slice(0, 10);
-}
-const sinceDate = ref<string>(todayMinusDays(7));
+// Date scope — only three presets: 이번 달 / 올해 / 전체 기간.
+type DateScope = "month" | "year" | "all";
+const dateScope = ref<DateScope>("month");
 
-// Human-friendly window label for the KPI card.
+// Convert the scope into the YYYY-MM-DD `since` the API understands.
+// "all" sends a very early date so the backend's `recorded_at >= $1` matches
+// every record without needing a new SQL branch.
+const sinceDate = computed<string>(() => {
+  const now = new Date();
+  if (dateScope.value === "month") {
+    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-01`;
+  }
+  if (dateScope.value === "year") {
+    return `${now.getFullYear()}-01-01`;
+  }
+  return "1970-01-01";
+});
+
+// Human-friendly window label for the KPI card and table header.
 const sinceLabel = computed(() => {
-  const d = new Date(sinceDate.value);
-  if (isNaN(d.getTime())) return "기간 미설정";
-  const diffMs = Date.now() - d.getTime();
-  const days = Math.max(0, Math.round(diffMs / (1000 * 60 * 60 * 24)));
-  if (days === 0) return "오늘";
-  if (days === 1) return "최근 1일";
-  return `최근 ${days}일`;
+  if (dateScope.value === "month") return "이번 달";
+  if (dateScope.value === "year")  return "올해";
+  return "전체 기간";
 });
 
 const [{ data, pending, error }, { data: runs }] = await Promise.all([
   useAsyncData(
     "dashboard",
     () => api.get<DashboardSummary>("/v1/dashboard/summary", { since: sinceDate.value }),
-    { watch: [sinceDate] },
+    { watch: [dateScope] },
   ),
   useAsyncData("billing-runs", () => api.get<BillingRun[]>("/v1/billing/runs")),
 ]);
@@ -148,10 +154,10 @@ const kpis = computed(() => {
       bg: t.incidents_7d > 5 ? "bg-destructive/10" : "bg-amber-100 dark:bg-amber-900/30",
       iconColor: t.incidents_7d > 5 ? "text-destructive" : "text-amber-700 dark:text-amber-300",
       isWarning: t.incidents_7d > 5,
-      // /care-logs?flagged=true&since=YYYY-MM-DD&branch=…
       href: {
-        path: "/care-logs",
+        path: "/care",
         query: {
+          tab: "care-logs",
           flagged: "true",
           since: sinceDate.value,
           ...(branchFilter.value ? { branch: branchFilter.value } : {}),
@@ -166,7 +172,7 @@ const kpis = computed(() => {
       bg: "bg-primary/10",
       iconColor: "text-primary",
       href: {
-        path: "/residents",
+        path: "/care",
         query: {
           ...(branchFilter.value ? { branch: branchFilter.value } : {}),
         },
@@ -194,8 +200,9 @@ const kpis = computed(() => {
       bg: "bg-violet-100 dark:bg-violet-900/30",
       iconColor: "text-violet-600 dark:text-violet-300",
       href: {
-        path: "/care-logs",
+        path: "/care",
         query: {
+          tab: "care-logs",
           flagged: "true",
           ...(branchFilter.value ? { branch: branchFilter.value } : {}),
         },
@@ -253,13 +260,14 @@ const tablePageEnd = computed(() =>
             {{ b.name }} {{ b.branch_type === 'hub' ? '· Hub' : '· Sat' }}
           </option>
         </select>
-        <label class="text-xs text-muted-foreground ml-2">이후</label>
-        <input
-          v-model="sinceDate"
-          type="date"
-          :max="new Date().toISOString().slice(0,10)"
+        <select
+          v-model="dateScope"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
+          <option value="month">이번 달</option>
+          <option value="year">올해</option>
+          <option value="all">전체 기간</option>
+        </select>
       </div>
     </header>
 
