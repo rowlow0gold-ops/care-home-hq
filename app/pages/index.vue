@@ -52,13 +52,16 @@ interface DashboardSummary {
 
 const api = useApi();
 
-// ----- Role gate --------------------------------------------------------
-// Only 본부 (hq / super_admin) gets the filter row and the charts.
-// Branch users see their own branch only — RLS does this server-side; the
-// branch filter UI is hidden so they can't even try to pivot.
+// ----- Role gates -------------------------------------------------------
+// HQ (본부) can pivot across all branches and sees the peer-comparison chart.
+// 센터장 (branch_manager) sees the date filter + their own branch's trend,
+// but is pinned to their own branch — RLS enforces this server-side too.
 const { me } = useAuth();
 const isHq = computed(
   () => me.value?.role === "hq" || me.value?.role === "super_admin",
+);
+const isManager = computed(
+  () => isHq.value || me.value?.role === "branch_manager",
 );
 
 // ----- Top-level filters: branch + date ---------------------------------
@@ -129,7 +132,9 @@ interface RawBillingRun {
 }
 const { data: allRuns } = await useAsyncData(
   "dash-all-runs",
-  () => isHq.value ? api.get<RawBillingRun[]>("/v1/billing/runs") : Promise.resolve([] as RawBillingRun[]),
+  () => isManager.value
+    ? api.get<RawBillingRun[]>("/v1/billing/runs")
+    : Promise.resolve([] as RawBillingRun[]),
 );
 
 // ----- 청구 매출 — derived from the (already window-scoped) summary -------
@@ -402,9 +407,13 @@ const tablePageEnd = computed(() =>
             : "전 지점 운영 현황 한눈에 보기" }}
         </p>
       </div>
-      <div v-if="isHq" class="flex items-center gap-2 flex-wrap">
+      <div class="flex items-center gap-2 flex-wrap">
         <Filter class="h-4 w-4 text-muted-foreground" />
+
+        <!-- Branch picker: HQ can pivot across all branches; branch managers
+             are pinned to their own (RLS enforces it server-side anyway). -->
         <select
+          v-if="isHq"
           v-model="branchFilter"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 min-w-[180px]"
         >
@@ -413,6 +422,18 @@ const tablePageEnd = computed(() =>
             {{ b.name }} {{ b.branch_type === 'hub' ? '· Hub' : '· Sat' }}
           </option>
         </select>
+        <div
+          v-else
+          class="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border bg-muted/30 text-sm text-foreground"
+          title="본인 소속 지점 데이터만 조회할 수 있습니다"
+        >
+          <Building2 class="h-3.5 w-3.5 text-primary" />
+          <span class="font-medium">
+            {{ data?.branches?.find((b) => b.id === branchFilter)?.name ?? '내 지점' }}
+          </span>
+        </div>
+
+        <!-- Date filter — available to everyone -->
         <select
           v-model="dateScope"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
@@ -497,9 +518,11 @@ const tablePageEnd = computed(() =>
       </NuxtLink>
     </div>
 
-    <!-- HQ-only charts -->
-    <div v-if="isHq" class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
-      <!-- Monthly revenue trend -->
+    <!-- Charts: monthly trend for any manager (HQ + 센터장),
+         peer-comparison bar only for HQ -->
+    <div v-if="isManager" class="grid grid-cols-1 gap-4 mb-6"
+         :class="isHq ? 'lg:grid-cols-2' : ''">
+      <!-- Monthly revenue trend (always for managers) -->
       <div class="rounded-xl border bg-card p-5">
         <div class="flex items-center gap-2 mb-3">
           <TrendingUp class="h-4 w-4 text-primary" />
@@ -520,8 +543,8 @@ const tablePageEnd = computed(() =>
         </div>
       </div>
 
-      <!-- Top branches by revenue (window-scoped, HQ-wide only) -->
-      <div class="rounded-xl border bg-card p-5">
+      <!-- Top branches by revenue (HQ only — branch managers can't see peers) -->
+      <div v-if="isHq" class="rounded-xl border bg-card p-5">
         <div class="flex items-center gap-2 mb-3">
           <BarChart3 class="h-4 w-4 text-primary" />
           <h3 class="text-sm font-semibold">{{ sinceLabel }} 지점별 매출 (상위 10)</h3>
