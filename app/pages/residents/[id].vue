@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, AlertTriangle, Plus, HeartPulse, ClipboardList, Pill, User, Pencil, LogOut, Skull } from "@lucide/vue";
+import { ArrowLeft, AlertTriangle, HeartPulse, ClipboardList, Pill, User } from "@lucide/vue";
 import { Line as LineChart } from "vue-chartjs";
 import {
   Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement,
@@ -33,44 +33,10 @@ interface Medication {
 type Tab = "summary" | "vitals" | "care-logs" | "medications";
 const tab = ref<Tab>("summary");
 
-const router = useRouter();
-const { data: resident, pending: residentPending, refresh: refreshResident } = await useAsyncData(
+// Web is read-only — 어르신 수정/퇴소/사망 처리는 데스크톱 (Tauri) 앱에서.
+const { data: resident, pending: residentPending } = await useAsyncData(
   `resident-${id}`,
   () => api.get<ResidentDetail>(`/v1/residents/${id}`),
-);
-
-// HQ-only CRUD (centralized at 본사 like staff)
-const { me } = useAuth();
-const isHq = computed(() => me.value?.role === "hq" || me.value?.role === "super_admin");
-
-// Edit mode
-const editing = ref(false);
-function onEditClick()   { editing.value = true; }
-function onCancelEdit()  { editing.value = false; }
-async function onSaved() {
-  editing.value = false;
-  await refreshResident();
-}
-
-// 퇴소 처리 + 사망 처리 dialogs
-const showDischargeConfirm = ref(false);
-const showDeceaseConfirm   = ref(false);
-
-const discharge = useApiMutation<void, ResidentDetail>(
-  () => api.post<ResidentDetail>(`/v1/residents/${id}/discharge`, {
-    discharged_on: new Date().toISOString().slice(0, 10),
-  }),
-  {
-    successMessage: "퇴소 처리되었습니다",
-    onSuccess: async () => { await router.push("/residents"); },
-  },
-);
-const decease = useApiMutation<void, ResidentDetail>(
-  () => api.post<ResidentDetail>(`/v1/residents/${id}/decease`, {}),
-  {
-    successMessage: "사망 처리되었습니다",
-    onSuccess: async () => { await router.push("/residents"); },
-  },
 );
 const { data: vitalsData } = await useAsyncData(`vitals-${id}`, () =>
   api.get<Vital[]>(`/v1/residents/${id}/vitals`),
@@ -174,48 +140,7 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
             </p>
           </div>
         </div>
-        <div class="flex items-center gap-2 flex-wrap">
-          <template v-if="isHq && resident.status === 'active'">
-            <button
-              type="button"
-              class="h-9 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted"
-              :disabled="editing"
-              @click="onEditClick"
-            >
-              <Pencil class="h-3.5 w-3.5" />
-              수정
-            </button>
-            <button
-              type="button"
-              class="h-9 px-3 rounded-lg border border-amber-500/40 bg-transparent text-amber-700 dark:text-amber-300 text-sm inline-flex items-center gap-1.5 hover:bg-amber-500/10 disabled:opacity-50"
-              :disabled="discharge.pending.value"
-              @click="showDischargeConfirm = true"
-            >
-              <LogOut class="h-3.5 w-3.5" />
-              퇴소 처리
-            </button>
-            <button
-              type="button"
-              class="h-9 px-3 rounded-lg border border-destructive/40 bg-transparent text-destructive text-sm inline-flex items-center gap-1.5 hover:bg-destructive/10 disabled:opacity-50"
-              :disabled="decease.pending.value"
-              @click="showDeceaseConfirm = true"
-            >
-              <Skull class="h-3.5 w-3.5" />
-              사망 처리
-            </button>
-          </template>
-        </div>
       </header>
-
-      <!-- Edit form (HQ + active resident only) -->
-      <ResidentForm
-        v-if="editing"
-        mode="edit"
-        :initial="resident"
-        class="mb-6"
-        @saved="onSaved"
-        @cancel="onCancelEdit"
-      />
 
       <!-- TABS -->
       <div class="border-b mb-6 flex gap-1 overflow-x-auto">
@@ -373,23 +298,6 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
           </table>
         </details>
       </div>
-      <!-- Status change confirmations -->
-      <ConfirmDialog
-        v-model:open="showDischargeConfirm"
-        :title="`${resident.full_name} 어르신 퇴소 처리`"
-        description="오늘 날짜로 퇴소 처리됩니다. 입소 기록 및 활력/케어 기록은 그대로 보존됩니다."
-        confirm-label="퇴소 처리"
-        tone="primary"
-        @confirm="discharge.run()"
-      />
-      <ConfirmDialog
-        v-model:open="showDeceaseConfirm"
-        :title="`${resident.full_name} 어르신 사망 처리`"
-        description="오늘 날짜로 사망 처리됩니다. 기록은 보존되며, 처리 후 되돌릴 수 없습니다."
-        confirm-label="사망 처리"
-        tone="destructive"
-        @confirm="decease.run()"
-      />
     </template>
   </div>
 </template>
