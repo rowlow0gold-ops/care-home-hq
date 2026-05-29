@@ -158,9 +158,10 @@ const statusLabel: Record<BillingRun["status"], string> = {
         <p class="text-sm text-muted-foreground mt-0.5">전체 이력 · 필터로 좁혀보기</p>
       </div>
       <div class="px-6 py-3 border-b flex flex-wrap gap-2 items-center bg-muted/20">
+        <!-- Fixed widths so disabled/visible-state changes don't shift the row -->
         <select
           v-model.number="filterYear"
-          class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          class="h-9 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option value="">전체 연도</option>
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}년</option>
@@ -168,21 +169,21 @@ const statusLabel: Record<BillingRun["status"], string> = {
         <select
           v-model.number="filterMonth"
           :disabled="!filterYear"
-          class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-50 disabled:cursor-not-allowed"
+          class="h-9 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <option value="">전체 월</option>
           <option v-for="m in monthOptions" :key="m" :value="m">{{ m }}월</option>
         </select>
         <select
           v-model="filterBranch"
-          class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          class="h-9 w-48 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option value="">전체 지점</option>
           <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
         </select>
         <select
           v-model="filterStatus"
-          class="h-9 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          class="h-9 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option value="">전체 상태</option>
           <option value="completed">완료</option>

@@ -470,42 +470,43 @@ const scheduleSummary = computed(() => {
           · 24시간 3교대 · 주간 06–14 / 저녁 14–22 / 야간 22–06
         </p>
         <div class="flex items-center gap-2 flex-wrap">
-          <!-- HQ: branch dropdown · BM: locked badge -->
+          <!-- HQ: branch dropdown · BM: locked badge — both fixed-width
+               so the row never reflows. -->
           <select
             v-if="isHqSchedule"
             v-model="scheduleBranch"
-            class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+            class="h-10 w-48 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
           >
             <option value="">전체 지점</option>
             <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
           </select>
           <div
             v-else
-            class="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border bg-muted/30 text-sm"
+            class="inline-flex items-center gap-1.5 h-10 w-48 px-3 rounded-lg border bg-muted/30 text-sm"
             title="본인 소속 지점만 조회할 수 있습니다"
           >
-            <Building2 class="h-3.5 w-3.5 text-primary" />
-            <span class="font-medium">
+            <Building2 class="h-3.5 w-3.5 text-primary flex-shrink-0" />
+            <span class="font-medium truncate">
               {{ dashboard?.branches?.find((b) => b.id === scheduleBranch)?.name ?? '내 지점' }}
             </span>
           </div>
 
-          <!-- Year / Month / Day — dashboard-style selects -->
+          <!-- Year / Month / Day — fixed-width selects matching dashboard -->
           <select
             v-model.number="scheduleYear"
-            class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+            class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
           >
             <option v-for="y in scheduleYearOptions" :key="y" :value="y">{{ y }}년</option>
           </select>
           <select
             v-model.number="scheduleMonth"
-            class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+            class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
           >
             <option v-for="m in scheduleMonthOptions" :key="m" :value="m">{{ m }}월</option>
           </select>
           <select
             v-model.number="scheduleDay"
-            class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+            class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
           >
             <option v-for="d in scheduleDayOptions" :key="d" :value="d">{{ d }}일</option>
           </select>

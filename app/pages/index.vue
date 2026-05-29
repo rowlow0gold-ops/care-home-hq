@@ -400,10 +400,12 @@ const tablePageEnd = computed(() =>
 
         <!-- Branch picker: HQ can pivot across all branches; branch managers
              are pinned to their own (RLS enforces it server-side anyway). -->
+        <!-- All controls have fixed widths; year/month stay in the layout
+             (invisible) when scope='all' so nothing shifts. -->
         <select
           v-if="isHq"
           v-model="branchFilter"
-          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 min-w-[180px]"
+          class="h-10 w-48 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option value="">전체 지점</option>
           <option v-for="b in data?.branches ?? []" :key="b.id" :value="b.id">
@@ -412,35 +414,34 @@ const tablePageEnd = computed(() =>
         </select>
         <div
           v-else
-          class="inline-flex items-center gap-1.5 h-10 px-3 rounded-lg border bg-muted/30 text-sm text-foreground"
+          class="inline-flex items-center gap-1.5 h-10 w-48 px-3 rounded-lg border bg-muted/30 text-sm text-foreground"
           title="본인 소속 지점 데이터만 조회할 수 있습니다"
         >
-          <Building2 class="h-3.5 w-3.5 text-primary" />
-          <span class="font-medium">
+          <Building2 class="h-3.5 w-3.5 text-primary flex-shrink-0" />
+          <span class="font-medium truncate">
             {{ data?.branches?.find((b) => b.id === branchFilter)?.name ?? '내 지점' }}
           </span>
         </div>
 
-        <!-- Date filter — available to everyone -->
         <select
           v-model="dateScope"
-          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option value="month">월별</option>
           <option value="year">연도별</option>
           <option value="all">전체 기간</option>
         </select>
         <select
-          v-if="dateScope === 'month' || dateScope === 'year'"
           v-model.number="selectedYear"
-          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          :class="dateScope === 'all' ? 'invisible pointer-events-none' : ''"
+          class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}년</option>
         </select>
         <select
-          v-if="dateScope === 'month'"
           v-model.number="selectedMonth"
-          class="h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+          :class="dateScope !== 'month' ? 'invisible pointer-events-none' : ''"
+          class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option v-for="m in monthOptions" :key="m" :value="m">{{ m }}월</option>
         </select>
