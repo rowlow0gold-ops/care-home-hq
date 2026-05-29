@@ -53,7 +53,7 @@ const appliedBranch = ref(branchFilter.value);
 const appliedQ = ref("");
 
 const page = ref(1);
-const pageSize = ref(50);
+const pageSize = ref(25);
 
 function applyFilters() {
   appliedFlagged.value = onlyFlagged.value;

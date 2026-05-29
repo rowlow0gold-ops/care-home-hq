@@ -1,5 +1,8 @@
 <script setup lang="ts">
-import { CheckCircle2, AlertCircle, Loader2, Download, Search, Building2 } from "@lucide/vue";
+import {
+  CheckCircle2, AlertCircle, Loader2, Download, Search,
+  Building2, ChevronLeft, ChevronRight,
+} from "@lucide/vue";
 
 // HQ can pivot across branches; 센터장 is locked to their own.
 const { me } = useAuth();
@@ -21,11 +24,13 @@ interface BillingRun {
   failure_reason: string | null;
   has_xlsx: boolean;
 }
-
-interface Branch {
-  id: string;
-  name: string;
+interface PagedRuns {
+  items: BillingRun[];
+  total: number;
+  page: number;
+  page_size: number;
 }
+interface Branch { id: string; name: string }
 
 const api = useApi();
 
@@ -33,38 +38,57 @@ const { data: dashboard } = await useAsyncData("rpt-dashboard", () =>
   api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
 );
 
-const { data: runs } = await useAsyncData("billing-runs", () =>
-  api.get<BillingRun[]>("/v1/billing/runs"),
-);
-
-// Draft filters (committed only when 검색 is clicked). Kept as plain strings
-// so v-model never has to choose between number / NaN / "" — the empty
-// string is the universally-correct "전체" value for both selects.
+// Draft filters (committed only when 검색 is clicked).
 const filterBranch = ref<string>(useDefaultBranch());
 const filterStatus = ref<string>("");
 const now          = new Date();
 const yearOptions  = Array.from({ length: 5 },  (_, i) => String(now.getFullYear() - i));
 const monthOptions = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
-const filterYear   = ref<string>("");        // "" = 전체 연도, else "2026"
-const filterMonth  = ref<string>("");        // "" = 전체 월,  else "05"
+const filterYear   = ref<string>("");
+const filterMonth  = ref<string>("");
 
-// Combined string the filter SQL would match against `year_month` LIKE prefix.
 const filterYearMonth = computed(() => {
-  if (!filterYear.value)  return "";                                  // 전체
-  if (!filterMonth.value) return filterYear.value;                    // 2026
-  return `${filterYear.value}-${filterMonth.value}`;                  // 2026-05
+  if (!filterYear.value)  return "";
+  if (!filterMonth.value) return filterYear.value;
+  return `${filterYear.value}-${filterMonth.value}`;
 });
 
-// Applied filters
+// Applied filters drive the server-side query.
 const appliedBranch    = ref(filterBranch.value);
 const appliedStatus    = ref(filterStatus.value);
 const appliedYearMonth = ref<string>("");
+
+const page     = ref(1);
+const pageSize = ref(25);   // 페이지 기본값 25 (전사 공통)
 
 function applyFilters() {
   appliedBranch.value    = filterBranch.value;
   appliedStatus.value    = filterStatus.value;
   appliedYearMonth.value = filterYearMonth.value;
+  page.value = 1;
 }
+
+const { data: paged, pending, error, refresh } = await useAsyncData(
+  "billing-runs-paged",
+  () => api.get<PagedRuns>("/v1/billing/runs/paged", {
+    year_month: appliedYearMonth.value || undefined,
+    branch_id:  appliedBranch.value || undefined,
+    status:     appliedStatus.value || undefined,
+    page:       page.value,
+    page_size:  pageSize.value,
+  }),
+  { watch: [appliedYearMonth, appliedBranch, appliedStatus, page, pageSize] },
+);
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil((paged.value?.total ?? 0) / pageSize.value)),
+);
+const showingFrom = computed(() =>
+  paged.value && paged.value.total > 0 ? (page.value - 1) * pageSize.value + 1 : 0,
+);
+const showingTo = computed(() =>
+  paged.value ? Math.min(page.value * pageSize.value, paged.value.total) : 0,
+);
 
 const branchById = computed(() => {
   const m = new Map<string, string>();
@@ -72,50 +96,32 @@ const branchById = computed(() => {
   return m;
 });
 
-const filteredRuns = computed(() => {
-  let arr = runs.value ?? [];
-  if (appliedBranch.value) arr = arr.filter((r) => r.branch_id === appliedBranch.value);
-  if (appliedStatus.value) arr = arr.filter((r) => r.status === appliedStatus.value);
-  if (appliedYearMonth.value) arr = arr.filter((r) => r.year_month.startsWith(appliedYearMonth.value));
-  return arr;
-});
-
 function fmtKRW(n: number | null) {
   if (n === null) return "—";
   return `₩${n.toLocaleString("ko-KR")}`;
 }
 
-// Download the generated XLSX. Goes through the Nuxt proxy so the JWT cookie
-// is attached automatically and the browser handles the filename / save dialog.
+// XLSX download (generate-on-demand pattern matching cost-management)
 const downloadingId = ref<string | null>(null);
 const downloadError = ref<string | null>(null);
 async function downloadXlsx(run: BillingRun) {
-  // Backend builds XLSX on-demand from residents + run metadata, so we
-  // don't gate on the legacy `has_xlsx` cache flag — just guard against
-  // double-clicks while a download is in flight.
   if (downloadingId.value) return;
   downloadingId.value = run.id;
   downloadError.value = null;
   try {
-    const res = await fetch(`/api/v1/billing/runs/${run.id}/xlsx`, {
-      credentials: "include",
-    });
+    const res = await fetch(`/api/v1/billing/runs/${run.id}/xlsx`, { credentials: "include" });
     if (!res.ok) throw new Error(`다운로드 실패 (${res.status})`);
     const blob = await res.blob();
     const branchName = branchById.value.get(run.branch_id) ?? "branch";
     const fallback = `LTCI_청구_${branchName}_${run.year_month}.xlsx`;
-    // Prefer the filename from Content-Disposition (server already encodes 한글)
     const cd = res.headers.get("Content-Disposition") ?? "";
     const m = /filename\*=UTF-8''([^;]+)/i.exec(cd) ?? /filename="([^"]+)"/i.exec(cd);
     const filename = m ? decodeURIComponent(m[1]) : fallback;
 
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
-    a.href = url;
-    a.download = filename;
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   } catch (e) {
     downloadError.value = (e as Error).message;
@@ -127,10 +133,7 @@ async function downloadXlsx(run: BillingRun) {
 function fmtTime(iso: string | null) {
   if (!iso) return "—";
   return new Date(iso).toLocaleString("ko-KR", {
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
+    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
   });
 }
 
@@ -163,7 +166,6 @@ const statusLabel: Record<BillingRun["status"], string> = {
         <h2 class="font-semibold">청구 이력</h2>
       </div>
       <div class="px-6 py-3 border-b flex flex-wrap gap-2 items-center bg-muted/20">
-        <!-- Fixed widths so disabled/visible-state changes don't shift the row -->
         <select
           v-model="filterYear"
           class="h-9 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
@@ -179,7 +181,6 @@ const statusLabel: Record<BillingRun["status"], string> = {
           <option value="">전체 월</option>
           <option v-for="m in monthOptions" :key="m" :value="m">{{ parseInt(m, 10) }}월</option>
         </select>
-        <!-- HQ: branch dropdown · 센터장: locked badge of their own branch -->
         <select
           v-if="isHq"
           v-model="filterBranch"
@@ -211,16 +212,19 @@ const statusLabel: Record<BillingRun["status"], string> = {
         <button
           type="button"
           @click="applyFilters"
+          :disabled="pending"
           aria-label="검색"
           title="검색"
-          class="h-9 w-9 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center"
+          class="h-9 w-9 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center disabled:opacity-60"
         >
-          <Search class="h-3.5 w-3.5" />
+          <Loader2 v-if="pending" class="h-3.5 w-3.5 animate-spin" />
+          <Search v-else class="h-3.5 w-3.5" />
         </button>
         <div class="ml-auto text-xs text-muted-foreground tabular-nums">
-          {{ filteredRuns.length }}건 / {{ (runs ?? []).length }}건
+          {{ showingFrom }}–{{ showingTo }} / {{ paged?.total ?? 0 }}건
         </div>
       </div>
+
       <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-xs text-muted-foreground bg-muted/30">
@@ -233,8 +237,26 @@ const statusLabel: Record<BillingRun["status"], string> = {
             <th class="py-3 px-6 font-medium text-right">XLSX</th>
           </tr>
         </thead>
-        <tbody>
-          <tr v-for="r in filteredRuns" :key="r.id" class="border-t hover:bg-muted/30">
+        <tbody v-if="pending && !paged">
+          <!-- Skeleton rows on initial load -->
+          <tr v-for="i in 8" :key="`sk-${i}`" class="border-t">
+            <td class="py-3 px-6"><Skeleton w="4rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="6rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="3rem" /></td>
+            <td class="py-3 px-3 text-right"><Skeleton w="2rem" class="ml-auto" /></td>
+            <td class="py-3 px-3 text-right"><Skeleton w="5rem" class="ml-auto" /></td>
+            <td class="py-3 px-3"><Skeleton w="8rem" /></td>
+            <td class="py-3 px-6 text-right"><Skeleton w="4rem" class="ml-auto" /></td>
+          </tr>
+        </tbody>
+        <tbody v-else-if="error">
+          <tr><td colspan="7" class="py-12 text-center text-destructive">
+            목록을 불러오지 못했습니다.
+            <button class="underline ml-2" @click="refresh()">다시 시도</button>
+          </td></tr>
+        </tbody>
+        <tbody v-else>
+          <tr v-for="r in paged?.items ?? []" :key="r.id" class="border-t hover:bg-muted/30">
             <td class="py-3 px-6 font-medium tabular-nums">{{ r.year_month }}</td>
             <td class="py-3 px-3">{{ branchById.get(r.branch_id) ?? "—" }}</td>
             <td class="py-3 px-3">
@@ -254,9 +276,6 @@ const statusLabel: Record<BillingRun["status"], string> = {
               {{ fmtTime(r.triggered_at) }} → {{ fmtTime(r.completed_at) }}
             </td>
             <td class="py-3 px-6 text-right">
-              <!-- Backend builds XLSX on-demand from residents + run metadata,
-                   so any run (even seeded ones) is downloadable. Only hide
-                   the button for failed runs. -->
               <button
                 v-if="r.status !== 'failed'"
                 class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-primary/40 bg-transparent text-primary text-xs font-semibold uppercase tracking-wide hover:bg-primary/10 hover:border-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -270,13 +289,47 @@ const statusLabel: Record<BillingRun["status"], string> = {
               <span v-else class="text-xs text-muted-foreground">—</span>
             </td>
           </tr>
-          <tr v-if="filteredRuns.length === 0">
+          <tr v-if="(paged?.items?.length ?? 0) === 0">
             <td colspan="7" class="py-12 text-center text-muted-foreground">
-              {{ appliedBranch || appliedStatus || appliedYearMonth ? "조건에 맞는 결과가 없습니다." : "청구 이력이 없습니다. 데스크톱 앱에서 첫 청구서를 생성하세요." }}
+              조건에 맞는 결과가 없습니다.
             </td>
           </tr>
         </tbody>
       </table>
+
+      <!-- Pagination -->
+      <div
+        v-if="(paged?.total ?? 0) > 0"
+        class="px-6 py-3 border-t flex items-center justify-between text-sm"
+      >
+        <div class="text-xs text-muted-foreground">
+          페이지 {{ paged?.page ?? 1 }} / {{ totalPages }}
+        </div>
+        <div class="flex items-center gap-2">
+          <select
+            v-model.number="pageSize"
+            class="h-8 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary"
+          >
+            <option :value="25">25/page</option>
+            <option :value="50">50/page</option>
+            <option :value="100">100/page</option>
+          </select>
+          <button
+            class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="page <= 1"
+            @click="page--"
+          >
+            <ChevronLeft class="h-4 w-4" />
+          </button>
+          <button
+            class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40 disabled:cursor-not-allowed"
+            :disabled="page >= totalPages"
+            @click="page++"
+          >
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
   </div>
 </template>

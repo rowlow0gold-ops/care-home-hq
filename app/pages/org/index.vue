@@ -21,6 +21,12 @@ interface OrgPerson {
   contract_end_on: string | null;
   is_inactive: boolean;
 }
+interface PagedOrg {
+  items: OrgPerson[];
+  total: number;
+  page: number;
+  page_size: number;
+}
 interface BranchInfo {
   id: string;
   name: string;
@@ -34,34 +40,56 @@ interface BranchInfo {
 const api = useApi();
 const router = useRouter();
 
-// /v1/org/tree returns the full company regardless of caller role —
-// 조직도 is intentionally a "trust" view (see backend).
-const [{ data: people, pending: peoplePending, error }, { data: dashboard, pending: branchesPending }] =
-  await Promise.all([
-    useAsyncData("org-tree", () => api.get<OrgPerson[]>("/v1/org/tree")),
-    useAsyncData("org-branches", () => api.get<{ branches: BranchInfo[] }>("/v1/dashboard/summary")),
-  ]);
-const pending = computed(() => peoplePending.value || branchesPending.value);
+// =============================================================================
+// HQ: paged (default 25). The HQ pool is small (~5-10 admins) so it almost
+// always fits in one page. Branch lists are paged per-branch below.
+// =============================================================================
+const { data: hqPaged, pending: hqPending } = await useAsyncData(
+  "org-hq",
+  () => api.get<PagedOrg>("/v1/org/paged", { hq_only: true, page: 1, page_size: 25 }),
+);
+const hqPeople = computed<OrgPerson[]>(() => hqPaged.value?.items ?? []);
 
-// HQ users have branch_id = null
-const hqPeople = computed(() => (people.value ?? []).filter((p) => !p.branch_id));
+// =============================================================================
+// Branch list comes from dashboard summary — gives us hub/satellite parentage
+// =============================================================================
+const { data: dashboard, pending: branchesPending } = await useAsyncData(
+  "org-branches",
+  () => api.get<{ branches: BranchInfo[] }>("/v1/dashboard/summary"),
+);
+const pending = computed(() => hqPending.value || branchesPending.value);
 
-// Staff per branch (id → people)
-const peopleByBranch = computed(() => {
-  const m = new Map<string, OrgPerson[]>();
-  for (const p of people.value ?? []) {
-    if (!p.branch_id) continue;
-    (m.get(p.branch_id) ?? m.set(p.branch_id, []).get(p.branch_id)!).push(p);
+// =============================================================================
+// Per-branch staff (paged, 25 per page). Each branch fetches lazily on
+// expand; state is keyed by branch id.
+// =============================================================================
+const branchStaffState = reactive<Record<string, {
+  items: OrgPerson[];
+  total: number;
+  page: number;
+  loading: boolean;
+  loaded:  boolean;
+}>>({});
+
+async function loadBranchStaff(branchId: string, page = 1) {
+  const st = branchStaffState[branchId] ?? {
+    items: [], total: 0, page: 1, loading: false, loaded: false,
+  };
+  if (st.loading) return;
+  st.loading = true;
+  branchStaffState[branchId] = st;
+  try {
+    const r = await api.get<PagedOrg>("/v1/org/paged", {
+      branch_id: branchId, page, page_size: 25,
+    });
+    st.items = r.items;
+    st.total = r.total;
+    st.page  = r.page;
+    st.loaded = true;
+  } finally {
+    st.loading = false;
   }
-  return m;
-});
-
-// All branches keyed by id
-const branchById = computed(() => {
-  const m = new Map<string, BranchInfo>();
-  for (const b of dashboard.value?.branches ?? []) m.set(b.id, b);
-  return m;
-});
+}
 
 // Hubs (sorted by name) + their child satellites
 interface HubGroup { hub: BranchInfo; satellites: BranchInfo[] }
@@ -77,14 +105,22 @@ const hubs = computed<HubGroup[]>(() => {
   }));
 });
 
-// Orphan satellites (no parent assigned yet) — shown as a separate group
 const orphans = computed<BranchInfo[]>(() =>
   (dashboard.value?.branches ?? [])
     .filter((b) => b.branch_type === "satellite" && !b.parent_branch_id)
     .sort((a, b) => a.name.localeCompare(b.name, "ko")),
 );
 
-// Grouping helper for the inline branch card
+// Auto-load page 1 for every visible branch as soon as the dashboard is ready
+watchEffect(() => {
+  for (const b of dashboard.value?.branches ?? []) {
+    if (!branchStaffState[b.id]?.loaded && !branchStaffState[b.id]?.loading) {
+      loadBranchStaff(b.id, 1);
+    }
+  }
+});
+
+// Position grouping helper for the inline branch card
 function bucket(persons: OrgPerson[]) {
   const groups = [
     { label: "센터장",   positions: ["branch_manager", "office_manager"] },
@@ -140,6 +176,19 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
   e.stopPropagation();
   router.push(`/staff/${p.id}`);
 }
+
+function pageCountFor(branchId: string): number {
+  const st = branchStaffState[branchId];
+  if (!st) return 1;
+  return Math.max(1, Math.ceil(st.total / 25));
+}
+async function changePage(branchId: string, delta: number) {
+  const st = branchStaffState[branchId];
+  if (!st) return;
+  const next = Math.max(1, Math.min(pageCountFor(branchId), st.page + delta));
+  if (next === st.page) return;
+  await loadBranchStaff(branchId, next);
+}
 </script>
 
 <template>
@@ -151,10 +200,6 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
     <div v-if="pending" class="space-y-3">
       <Skeleton h="6rem" />
       <Skeleton h="6rem" />
-    </div>
-
-    <div v-else-if="error" class="text-sm text-destructive py-12 text-center">
-      조직도를 불러오지 못했습니다.
     </div>
 
     <template v-else>
@@ -186,10 +231,9 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
         </div>
       </div>
 
-      <!-- vertical connector -->
       <div class="h-6 w-0.5 bg-border mx-auto" />
 
-      <!-- One row per HUB, with that hub's satellites nested below -->
+      <!-- One row per HUB with its satellites nested below -->
       <div class="space-y-5">
         <div
           v-for="g in hubs"
@@ -214,16 +258,21 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
                 </div>
                 <div class="text-xs text-muted-foreground mt-0.5">
                   <Users class="h-3 w-3 inline-block mr-0.5" />
-                  총 {{ (peopleByBranch.get(g.hub.id) ?? []).length }}명 · 어르신 {{ g.hub.resident_count }}명
+                  총 {{ branchStaffState[g.hub.id]?.total ?? 0 }}명
+                  · 어르신 {{ g.hub.resident_count }}명
                   · 산하 위성 {{ g.satellites.length }}곳
                 </div>
               </div>
               <ChevronRight class="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
 
-            <!-- Hub's own staff buckets -->
-            <div class="space-y-2">
-              <div v-for="b in bucket(peopleByBranch.get(g.hub.id) ?? [])" :key="b.label">
+            <!-- Hub's own staff (current page, 25 at a time) -->
+            <div v-if="branchStaffState[g.hub.id]?.loading && !branchStaffState[g.hub.id]?.loaded" class="space-y-2">
+              <Skeleton h="1.25rem" w="80%" />
+              <Skeleton h="1.25rem" w="60%" />
+            </div>
+            <div v-else class="space-y-2">
+              <div v-for="b in bucket(branchStaffState[g.hub.id]?.items ?? [])" :key="b.label">
                 <div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
                   {{ b.label }} ({{ b.people.length }})
                 </div>
@@ -239,6 +288,30 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
                   >
                     {{ p.full_name }}
                   </button>
+                </div>
+              </div>
+
+              <!-- Pagination row — only if branch has more than one page -->
+              <div
+                v-if="pageCountFor(g.hub.id) > 1"
+                class="flex items-center gap-2 pt-2 mt-1 border-t text-[11px] text-muted-foreground"
+                @click.stop
+              >
+                <span class="tabular-nums">
+                  페이지 {{ branchStaffState[g.hub.id]?.page ?? 1 }} / {{ pageCountFor(g.hub.id) }}
+                  · 총 {{ branchStaffState[g.hub.id]?.total ?? 0 }}명
+                </span>
+                <div class="ml-auto flex items-center gap-1">
+                  <button
+                    class="h-6 w-6 rounded border bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40"
+                    :disabled="(branchStaffState[g.hub.id]?.page ?? 1) <= 1 || branchStaffState[g.hub.id]?.loading"
+                    @click.stop="changePage(g.hub.id, -1)"
+                  >‹</button>
+                  <button
+                    class="h-6 w-6 rounded border bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40"
+                    :disabled="(branchStaffState[g.hub.id]?.page ?? 1) >= pageCountFor(g.hub.id) || branchStaffState[g.hub.id]?.loading"
+                    @click.stop="changePage(g.hub.id, 1)"
+                  >›</button>
                 </div>
               </div>
             </div>
@@ -267,11 +340,11 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
                 </div>
                 <div class="text-[11px] text-muted-foreground mb-2">
                   <Users class="h-3 w-3 inline-block mr-0.5" />
-                  {{ (peopleByBranch.get(sat.id) ?? []).length }}명
+                  {{ branchStaffState[sat.id]?.total ?? 0 }}명
                 </div>
                 <div class="flex flex-wrap gap-1">
                   <button
-                    v-for="p in (peopleByBranch.get(sat.id) ?? []).slice(0, 6)"
+                    v-for="p in (branchStaffState[sat.id]?.items ?? []).slice(0, 6)"
                     :key="p.id"
                     class="px-1.5 py-0.5 rounded text-[10px] transition-colors hover:ring-1 hover:ring-primary/40"
                     :class="employmentTone[p.employment_type] ?? 'bg-muted'"
@@ -282,10 +355,10 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
                     {{ p.full_name }}
                   </button>
                   <span
-                    v-if="(peopleByBranch.get(sat.id) ?? []).length > 6"
+                    v-if="(branchStaffState[sat.id]?.total ?? 0) > 6"
                     class="text-[10px] text-muted-foreground self-center"
                   >
-                    +{{ (peopleByBranch.get(sat.id) ?? []).length - 6 }}
+                    +{{ (branchStaffState[sat.id]?.total ?? 0) - 6 }} 더보기 →
                   </span>
                 </div>
               </button>
@@ -293,7 +366,7 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
           </div>
         </div>
 
-        <!-- Orphan satellites (no hub) — only if any exist -->
+        <!-- Orphan satellites -->
         <div v-if="orphans.length > 0" class="rounded-2xl border bg-muted/30 p-4">
           <div class="text-xs font-medium text-amber-600 mb-3 flex items-center gap-1">
             <Layers class="h-3.5 w-3.5" /> 미배정 위성센터 ({{ orphans.length }})
@@ -307,7 +380,7 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
             >
               <div class="font-medium text-sm">{{ sat.name }}</div>
               <div class="text-[11px] text-muted-foreground mt-1">
-                {{ (peopleByBranch.get(sat.id) ?? []).length }}명
+                {{ branchStaffState[sat.id]?.total ?? 0 }}명
               </div>
             </button>
           </div>

@@ -48,7 +48,7 @@ const appliedBranch = ref(branchFilter.value);
 const appliedSearch = ref("");
 
 const page = ref(1);
-const pageSize = ref(50);
+const pageSize = ref(25);
 
 function applyFilters() {
   appliedShowStopped.value = showStopped.value;
