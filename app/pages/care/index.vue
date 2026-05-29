@@ -51,9 +51,10 @@ const tabs: { key: Tab; label: string; icon: any }[] = [
       </button>
     </div>
 
-    <!-- Tab content -->
-    <CareResidents    v-if="tab === 'residents'" />
-    <CareLogs         v-else-if="tab === 'care-logs'" />
-    <CareMedications  v-else-if="tab === 'medications'" />
+    <!-- Tab content — component names lost their 'Care' prefix once
+         pathPrefix:false was enabled on nuxt.config. -->
+    <Residents    v-if="tab === 'residents'" />
+    <Logs         v-else-if="tab === 'care-logs'" />
+    <Medications  v-else-if="tab === 'medications'" />
   </div>
 </template>
