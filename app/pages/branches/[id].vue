@@ -54,18 +54,26 @@ interface Resident {
   status: string;
 }
 
-const [{ data: dashboard }, { data: org }, { data: residents }] = await Promise.all([
+interface PagedOrg { items: OrgPerson[]; total: number; page: number; page_size: number }
+
+// Pull this branch's staff via the paged endpoint with a huge page (the
+// previous full /v1/org/chart dump was a 600KB round-trip for HQ users and
+// silently returned only the caller's own branch for managers, which is what
+// made the page render '직원 0명'). page_size:500 covers the biggest hub.
+const [{ data: dashboard }, { data: orgPaged }, { data: residents }] = await Promise.all([
   useAsyncData(`branch-${id}-dash`, () =>
     api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
   ),
-  useAsyncData(`branch-${id}-org`, () => api.get<OrgPerson[]>("/v1/org/chart")),
+  useAsyncData(`branch-${id}-org`, () =>
+    api.get<PagedOrg>("/v1/org/paged", { branch_id: id, page: 1, page_size: 500 }),
+  ),
   useAsyncData(`branch-${id}-res`, () => api.get<Resident[]>("/v1/residents")),
 ]);
 
 const branch = computed(() =>
   dashboard.value?.branches.find((b) => b.id === id) ?? null,
 );
-const staffAll = computed(() => (org.value ?? []).filter((p) => p.branch_id === id));
+const staffAll = computed<OrgPerson[]>(() => orgPaged.value?.items ?? []);
 const residentsAll = computed(() =>
   (residents.value ?? []).filter((r: any) => r.branch_id === id && r.status === "active"),
 );

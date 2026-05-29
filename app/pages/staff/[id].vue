@@ -116,8 +116,7 @@ const tone: Record<string, string> = {
       </header>
 
       <!-- READ VIEW (web is read-only — mutations live in the Tauri 데스크톱 앱) -->
-      <template>
-        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="rounded-xl border bg-card p-5">
             <h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">연락처</h2>
             <dl class="text-sm space-y-2.5">
@@ -228,7 +227,6 @@ const tone: Record<string, string> = {
             </p>
           </div>
         </div>
-      </template>
 
     </template>
   </div>
