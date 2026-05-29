@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
-  Crown, Briefcase, Building2, Stethoscope, HeartPulse, Utensils, Activity,
-  Hammer, Car, ChevronRight, Users, Layers,
+  Crown, Briefcase, Building2, Stethoscope, HeartPulse, Hammer,
+  ChevronRight, Users, Layers,
 } from "@lucide/vue";
 
 useHead({ title: "조직도 · 케어닥 HQ" });
@@ -12,20 +12,19 @@ interface OrgPerson {
   branch_name: string | null;
   full_name: string;
   email: string;
-  role: string;
   position: string;
   position_ko: string;
   employment_type: string;
   employment_type_ko: string;
   hired_on: string | null;
   contract_end_on: string | null;
-  is_inactive: boolean;
 }
-interface PagedOrg {
-  items: OrgPerson[];
+interface BucketCounts { leaders: number; medical: number; care: number; support: number }
+interface BranchSummary {
+  branch_id: string | null;
   total: number;
-  page: number;
-  page_size: number;
+  counts: BucketCounts;
+  leaders: OrgPerson[];
 }
 interface BranchInfo {
   id: string;
@@ -33,7 +32,6 @@ interface BranchInfo {
   branch_type: "hub" | "satellite";
   parent_branch_id: string | null;
   resident_count: number;
-  staff_on_duty: number;
   services: string[];
 }
 
@@ -41,55 +39,22 @@ const api = useApi();
 const router = useRouter();
 
 // =============================================================================
-// HQ: paged (default 25). The HQ pool is small (~5-10 admins) so it almost
-// always fits in one page. Branch lists are paged per-branch below.
+// Single round-trip: per-branch counts + leadership names.
+// Replaces the previous "fetch all 3,200 staff" pattern.
 // =============================================================================
-const { data: hqPaged, pending: hqPending } = await useAsyncData(
-  "org-hq",
-  () => api.get<PagedOrg>("/v1/org/paged", { hq_only: true, page: 1, page_size: 25 }),
-);
-const hqPeople = computed<OrgPerson[]>(() => hqPaged.value?.items ?? []);
+const [{ data: summaries, pending: summariesPending }, { data: dashboard, pending: branchesPending }] =
+  await Promise.all([
+    useAsyncData("org-branch-summary", () => api.get<BranchSummary[]>("/v1/org/branch-summary")),
+    useAsyncData("org-branches", () => api.get<{ branches: BranchInfo[] }>("/v1/dashboard/summary")),
+  ]);
+const pending = computed(() => summariesPending.value || branchesPending.value);
 
-// =============================================================================
-// Branch list comes from dashboard summary — gives us hub/satellite parentage
-// =============================================================================
-const { data: dashboard, pending: branchesPending } = await useAsyncData(
-  "org-branches",
-  () => api.get<{ branches: BranchInfo[] }>("/v1/dashboard/summary"),
-);
-const pending = computed(() => hqPending.value || branchesPending.value);
-
-// =============================================================================
-// Per-branch staff (paged, 25 per page). Each branch fetches lazily on
-// expand; state is keyed by branch id.
-// =============================================================================
-const branchStaffState = reactive<Record<string, {
-  items: OrgPerson[];
-  total: number;
-  page: number;
-  loading: boolean;
-  loaded:  boolean;
-}>>({});
-
-async function loadBranchStaff(branchId: string, page = 1) {
-  const st = branchStaffState[branchId] ?? {
-    items: [], total: 0, page: 1, loading: false, loaded: false,
-  };
-  if (st.loading) return;
-  st.loading = true;
-  branchStaffState[branchId] = st;
-  try {
-    const r = await api.get<PagedOrg>("/v1/org/paged", {
-      branch_id: branchId, page, page_size: 25,
-    });
-    st.items = r.items;
-    st.total = r.total;
-    st.page  = r.page;
-    st.loaded = true;
-  } finally {
-    st.loading = false;
-  }
-}
+const summaryByBranch = computed(() => {
+  const m = new Map<string | null, BranchSummary>();
+  for (const s of summaries.value ?? []) m.set(s.branch_id, s);
+  return m;
+});
+const hqSummary = computed(() => summaryByBranch.value.get(null) ?? null);
 
 // Hubs (sorted by name) + their child satellites
 interface HubGroup { hub: BranchInfo; satellites: BranchInfo[] }
@@ -111,39 +76,11 @@ const orphans = computed<BranchInfo[]>(() =>
     .sort((a, b) => a.name.localeCompare(b.name, "ko")),
 );
 
-// Auto-load page 1 for every visible branch as soon as the dashboard is ready
-watchEffect(() => {
-  for (const b of dashboard.value?.branches ?? []) {
-    if (!branchStaffState[b.id]?.loaded && !branchStaffState[b.id]?.loading) {
-      loadBranchStaff(b.id, 1);
-    }
-  }
-});
-
-// Position grouping helper for the inline branch card
-function bucket(persons: OrgPerson[]) {
-  const groups = [
-    { label: "센터장",   positions: ["branch_manager", "office_manager"] },
-    { label: "의료/복지", positions: ["nurse_rn", "nurse_assistant", "social_worker", "doctor_visiting", "dietitian", "physical_therapist", "occupational_therapist"] },
-    { label: "케어",     positions: ["caregiver"] },
-    { label: "지원",     positions: ["cook", "cleaner", "driver", "receptionist", "other"] },
-  ];
-  return groups.map((g) => ({
-    label: g.label,
-    people: persons.filter((p) => g.positions.includes(p.position)),
-  })).filter((g) => g.people.length > 0);
-}
-
 const positionIcon: Record<string, any> = {
   ceo: Crown, coo: Briefcase, cfo: Briefcase, hr_director: Briefcase,
   quality_director: Briefcase, compliance: Briefcase, training: Briefcase, it: Briefcase,
   branch_manager: Building2, office_manager: Briefcase,
-  social_worker: HeartPulse, nurse_rn: Stethoscope, nurse_assistant: Stethoscope,
-  dietitian: Utensils, physical_therapist: Activity, occupational_therapist: Activity,
-  doctor_visiting: Stethoscope, caregiver: HeartPulse,
-  cook: Utensils, cleaner: Hammer, driver: Car, other: Briefcase,
 };
-
 const employmentTone: Record<string, string> = {
   regular:        "bg-primary/10 text-primary",
   contract:       "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
@@ -152,10 +89,9 @@ const employmentTone: Record<string, string> = {
   consultant:     "bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200",
 };
 
-// Hover popover state
+// Hover popover state — appears on hovered leader pill
 const hoveredPerson = ref<OrgPerson | null>(null);
 const popoverPos = ref({ x: 0, y: 0 });
-
 function onHover(p: OrgPerson, e: MouseEvent) {
   hoveredPerson.value = p;
   const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
@@ -176,30 +112,21 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
   e.stopPropagation();
   router.push(`/staff/${p.id}`);
 }
-
-function pageCountFor(branchId: string): number {
-  const st = branchStaffState[branchId];
-  if (!st) return 1;
-  return Math.max(1, Math.ceil(st.total / 25));
-}
-async function changePage(branchId: string, delta: number) {
-  const st = branchStaffState[branchId];
-  if (!st) return;
-  const next = Math.max(1, Math.min(pageCountFor(branchId), st.page + delta));
-  if (next === st.page) return;
-  await loadBranchStaff(branchId, next);
-}
 </script>
 
 <template>
   <div class="px-8 py-6 max-w-7xl mx-auto">
     <header class="mb-6">
       <h1 class="text-3xl font-bold tracking-tight">조직도</h1>
+      <p class="text-sm text-muted-foreground mt-1">
+        본사 → 광역센터 → 위성센터 · 인원수 + 센터장만 표시 · 카드 클릭 → 지점 상세
+      </p>
     </header>
 
     <div v-if="pending" class="space-y-3">
       <Skeleton h="6rem" />
-      <Skeleton h="6rem" />
+      <Skeleton h="8rem" />
+      <Skeleton h="8rem" />
     </div>
 
     <template v-else>
@@ -211,12 +138,14 @@ async function changePage(branchId: string, delta: number) {
           </div>
           <div>
             <div class="text-base font-bold">본사 (HQ)</div>
-            <div class="text-xs text-muted-foreground">{{ hqPeople.length }}명 · 케어닥 전사 운영</div>
+            <div class="text-xs text-muted-foreground">
+              {{ hqSummary?.total ?? 0 }}명 · 케어닥 전사 운영
+            </div>
           </div>
         </div>
         <div class="flex flex-wrap gap-1.5">
           <button
-            v-for="p in hqPeople"
+            v-for="p in hqSummary?.leaders ?? []"
             :key="p.id"
             class="flex items-center gap-1.5 px-2 py-1 rounded-md text-xs transition-colors hover:ring-1 hover:ring-primary/40"
             :class="employmentTone[p.employment_type] ?? 'bg-muted'"
@@ -258,7 +187,7 @@ async function changePage(branchId: string, delta: number) {
                 </div>
                 <div class="text-xs text-muted-foreground mt-0.5">
                   <Users class="h-3 w-3 inline-block mr-0.5" />
-                  총 {{ branchStaffState[g.hub.id]?.total ?? 0 }}명
+                  총 {{ summaryByBranch.get(g.hub.id)?.total ?? 0 }}명
                   · 어르신 {{ g.hub.resident_count }}명
                   · 산하 위성 {{ g.satellites.length }}곳
                 </div>
@@ -266,53 +195,39 @@ async function changePage(branchId: string, delta: number) {
               <ChevronRight class="h-4 w-4 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
             </div>
 
-            <!-- Hub's own staff (current page, 25 at a time) -->
-            <div v-if="branchStaffState[g.hub.id]?.loading && !branchStaffState[g.hub.id]?.loaded" class="space-y-2">
-              <Skeleton h="1.25rem" w="80%" />
-              <Skeleton h="1.25rem" w="60%" />
-            </div>
-            <div v-else class="space-y-2">
-              <div v-for="b in bucket(branchStaffState[g.hub.id]?.items ?? [])" :key="b.label">
-                <div class="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground mb-1">
-                  {{ b.label }} ({{ b.people.length }})
-                </div>
-                <div class="flex flex-wrap gap-1">
-                  <button
-                    v-for="p in b.people"
-                    :key="p.id"
-                    class="px-1.5 py-0.5 rounded text-[11px] transition-colors hover:ring-1 hover:ring-primary/40"
-                    :class="employmentTone[p.employment_type] ?? 'bg-muted'"
-                    @mouseenter.stop="onHover(p, $event)"
-                    @mouseleave="onLeave"
-                    @click="openPerson(p, $event)"
-                  >
-                    {{ p.full_name }}
-                  </button>
-                </div>
-              </div>
-
-              <!-- Pagination row — only if branch has more than one page -->
-              <div
-                v-if="pageCountFor(g.hub.id) > 1"
-                class="flex items-center gap-2 pt-2 mt-1 border-t text-[11px] text-muted-foreground"
-                @click.stop
+            <!-- Leaders (real names) -->
+            <div class="mb-3 flex flex-wrap gap-1.5" @click.stop>
+              <button
+                v-for="p in summaryByBranch.get(g.hub.id)?.leaders ?? []"
+                :key="p.id"
+                class="flex items-center gap-1 px-2 py-0.5 rounded text-[11px] transition-colors hover:ring-1 hover:ring-primary/40"
+                :class="employmentTone[p.employment_type] ?? 'bg-muted'"
+                @mouseenter="onHover(p, $event)"
+                @mouseleave="onLeave"
+                @click="openPerson(p, $event)"
               >
-                <span class="tabular-nums">
-                  페이지 {{ branchStaffState[g.hub.id]?.page ?? 1 }} / {{ pageCountFor(g.hub.id) }}
-                  · 총 {{ branchStaffState[g.hub.id]?.total ?? 0 }}명
-                </span>
-                <div class="ml-auto flex items-center gap-1">
-                  <button
-                    class="h-6 w-6 rounded border bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40"
-                    :disabled="(branchStaffState[g.hub.id]?.page ?? 1) <= 1 || branchStaffState[g.hub.id]?.loading"
-                    @click.stop="changePage(g.hub.id, -1)"
-                  >‹</button>
-                  <button
-                    class="h-6 w-6 rounded border bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40"
-                    :disabled="(branchStaffState[g.hub.id]?.page ?? 1) >= pageCountFor(g.hub.id) || branchStaffState[g.hub.id]?.loading"
-                    @click.stop="changePage(g.hub.id, 1)"
-                  >›</button>
-                </div>
+                <Building2 class="h-3 w-3 opacity-70" />
+                {{ p.full_name }}
+                <span class="opacity-70">· {{ p.position_ko }}</span>
+              </button>
+            </div>
+
+            <!-- Other-position counts (compact) -->
+            <div class="grid grid-cols-3 gap-2 text-xs">
+              <div class="rounded-md border bg-background/50 px-2.5 py-1.5 flex items-center gap-1.5">
+                <Stethoscope class="h-3 w-3 text-blue-600" />
+                <span class="text-muted-foreground">의료/복지</span>
+                <span class="ml-auto font-semibold tabular-nums">{{ summaryByBranch.get(g.hub.id)?.counts.medical ?? 0 }}명</span>
+              </div>
+              <div class="rounded-md border bg-background/50 px-2.5 py-1.5 flex items-center gap-1.5">
+                <HeartPulse class="h-3 w-3 text-primary" />
+                <span class="text-muted-foreground">케어</span>
+                <span class="ml-auto font-semibold tabular-nums">{{ summaryByBranch.get(g.hub.id)?.counts.care ?? 0 }}명</span>
+              </div>
+              <div class="rounded-md border bg-background/50 px-2.5 py-1.5 flex items-center gap-1.5">
+                <Hammer class="h-3 w-3 text-muted-foreground" />
+                <span class="text-muted-foreground">지원</span>
+                <span class="ml-auto font-semibold tabular-nums">{{ summaryByBranch.get(g.hub.id)?.counts.support ?? 0 }}명</span>
               </div>
             </div>
           </button>
@@ -333,33 +248,26 @@ async function changePage(branchId: string, delta: number) {
                 <div class="flex items-center gap-2 mb-2">
                   <Building2 class="h-3.5 w-3.5 text-muted-foreground" />
                   <div class="font-medium text-sm flex-1">{{ sat.name }}</div>
-                  <span class="text-[9px] font-semibold uppercase tracking-wider rounded px-1 py-0.5 bg-muted text-muted-foreground">
-                    Sat
-                  </span>
+                  <span class="text-[9px] font-semibold uppercase tracking-wider rounded px-1 py-0.5 bg-muted text-muted-foreground">Sat</span>
                   <ChevronRight class="h-3.5 w-3.5 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" />
                 </div>
-                <div class="text-[11px] text-muted-foreground mb-2">
+                <div class="text-[11px] text-muted-foreground mb-1.5">
                   <Users class="h-3 w-3 inline-block mr-0.5" />
-                  {{ branchStaffState[sat.id]?.total ?? 0 }}명
+                  {{ summaryByBranch.get(sat.id)?.total ?? 0 }}명
                 </div>
-                <div class="flex flex-wrap gap-1">
+                <!-- Satellite leader names (usually 1: 센터장) -->
+                <div class="flex flex-wrap gap-1" @click.stop>
                   <button
-                    v-for="p in (branchStaffState[sat.id]?.items ?? []).slice(0, 6)"
+                    v-for="p in summaryByBranch.get(sat.id)?.leaders ?? []"
                     :key="p.id"
                     class="px-1.5 py-0.5 rounded text-[10px] transition-colors hover:ring-1 hover:ring-primary/40"
                     :class="employmentTone[p.employment_type] ?? 'bg-muted'"
-                    @mouseenter.stop="onHover(p, $event)"
+                    @mouseenter="onHover(p, $event)"
                     @mouseleave="onLeave"
                     @click="openPerson(p, $event)"
                   >
-                    {{ p.full_name }}
+                    {{ p.full_name }} · {{ p.position_ko }}
                   </button>
-                  <span
-                    v-if="(branchStaffState[sat.id]?.total ?? 0) > 6"
-                    class="text-[10px] text-muted-foreground self-center"
-                  >
-                    +{{ (branchStaffState[sat.id]?.total ?? 0) - 6 }} 더보기 →
-                  </span>
                 </div>
               </button>
             </div>
@@ -380,7 +288,7 @@ async function changePage(branchId: string, delta: number) {
             >
               <div class="font-medium text-sm">{{ sat.name }}</div>
               <div class="text-[11px] text-muted-foreground mt-1">
-                {{ branchStaffState[sat.id]?.total ?? 0 }}명
+                {{ summaryByBranch.get(sat.id)?.total ?? 0 }}명
               </div>
             </button>
           </div>
@@ -430,10 +338,6 @@ async function changePage(branchId: string, delta: number) {
               <div v-if="hoveredPerson.hired_on" class="flex">
                 <dt class="text-muted-foreground w-16">입사</dt>
                 <dd class="flex-1">{{ hoveredPerson.hired_on }}</dd>
-              </div>
-              <div v-if="hoveredPerson.contract_end_on" class="flex">
-                <dt class="text-muted-foreground w-16">계약 만료</dt>
-                <dd class="flex-1">{{ hoveredPerson.contract_end_on }}</dd>
               </div>
             </dl>
           </div>
