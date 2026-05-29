@@ -18,6 +18,12 @@ export default defineNuxtConfig({
 
   css: ["~/assets/css/main.css"],
 
+  // Auto-import components by file name only (skip folder prefix).
+  // Without this, `app/components/ui/ConfirmDialog.vue` would register as
+  // `<UiConfirmDialog>` and `<ConfirmDialog>` would silently render nothing —
+  // which is what was breaking 수정 / 퇴직처리 / 퇴소 / 사망 dialogs.
+  components: [{ path: "~/components", pathPrefix: false }],
+
   i18n: {
     locales: [
       { code: "ko", name: "한국어", file: "ko.json" },

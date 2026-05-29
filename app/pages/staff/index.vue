@@ -163,6 +163,36 @@ async function onExportStaffXlsx() {
   }
 }
 
+// 근무일정 내보내기 — 현재 선택된 날짜(단일일) + 지점 필터로 XLSX 다운로드.
+// HQ + 센터장 모두 사용. BM의 경우 백엔드가 자기 지점으로 강제 스코프.
+const exportingScheduleXlsx = ref(false);
+async function onExportScheduleXlsx() {
+  if (exportingScheduleXlsx.value) return;
+  exportingScheduleXlsx.value = true;
+  try {
+    const qs = new URLSearchParams();
+    qs.set("since", scheduleDate.value);
+    qs.set("until", scheduleDate.value);
+    if (scheduleBranch.value) qs.set("branch_id", scheduleBranch.value);
+    const res = await fetch(`/api/v1/shifts/export.xlsx?${qs.toString()}`, { credentials: "include" });
+    if (!res.ok) throw new Error(`다운로드 실패 (${res.status})`);
+    const blob = await res.blob();
+    const fallback = `근무일정_${scheduleDate.value}.xlsx`;
+    const cd = res.headers.get("Content-Disposition") ?? "";
+    const m  = /filename\*=UTF-8''([^;]+)/i.exec(cd) ?? /filename="([^"]+)"/i.exec(cd);
+    const filename = m ? decodeURIComponent(m[1]) : fallback;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e: any) {
+    exportToast.error(e?.message ?? "다운로드 실패", "내보내기 실패");
+  } finally {
+    exportingScheduleXlsx.value = false;
+  }
+}
+
 const tone: Record<string, string> = {
   regular: "bg-primary/10 text-primary",
   contract: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200",
@@ -550,6 +580,16 @@ const scheduleSummary = computed(() => {
           >
             <option v-for="d in scheduleDayOptions" :key="d" :value="d">{{ d }}일</option>
           </select>
+          <button
+            type="button"
+            class="h-10 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-60"
+            :disabled="exportingScheduleXlsx"
+            @click="onExportScheduleXlsx"
+          >
+            <Loader2 v-if="exportingScheduleXlsx" class="h-4 w-4 animate-spin" />
+            <Download v-else class="h-4 w-4" />
+            내보내기
+          </button>
         </div>
       </div>
 

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { AlertTriangle, ClipboardList, Search, Loader2, ChevronLeft, ChevronRight, Building2 } from "@lucide/vue";
+import { AlertTriangle, ClipboardList, Search, Loader2, ChevronLeft, ChevronRight, Building2, Download } from "@lucide/vue";
 
 // HQ sees all branches; everyone else is pinned to their own.
 const { me } = useAuth();
@@ -96,6 +96,38 @@ function fmtTime(iso: string) {
     month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
   });
 }
+
+// 내보내기 — 현재 적용된 필터 그대로 케어기록 XLSX 다운로드
+const exportingXlsx = ref(false);
+const exportToast = useToast();
+async function onExportXlsx() {
+  if (exportingXlsx.value) return;
+  exportingXlsx.value = true;
+  try {
+    const qs = new URLSearchParams();
+    if (appliedQ.value)        qs.set("q", appliedQ.value);
+    if (appliedBranch.value)   qs.set("branch_id", appliedBranch.value);
+    if (appliedCategory.value) qs.set("category", appliedCategory.value);
+    if (appliedFlagged.value)  qs.set("flagged_only", "true");
+    const res = await fetch(`/api/v1/care-logs/export.xlsx?${qs.toString()}`, { credentials: "include" });
+    if (!res.ok) throw new Error(`다운로드 실패 (${res.status})`);
+    const blob = await res.blob();
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const fallback = `케어기록_${stamp}.xlsx`;
+    const cd = res.headers.get("Content-Disposition") ?? "";
+    const m  = /filename\*=UTF-8''([^;]+)/i.exec(cd) ?? /filename="([^"]+)"/i.exec(cd);
+    const filename = m ? decodeURIComponent(m[1]) : fallback;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e: any) {
+    exportToast.error(e?.message ?? "다운로드 실패", "내보내기 실패");
+  } finally {
+    exportingXlsx.value = false;
+  }
+}
 </script>
 
 <template>
@@ -151,8 +183,20 @@ function fmtTime(iso: string) {
           <Loader2 v-if="pending" class="h-4 w-4 animate-spin" />
           <Search v-else class="h-4 w-4" />
         </button>
-        <div class="ml-auto text-xs text-muted-foreground tabular-nums">
-          {{ showingFrom }}–{{ showingTo }} / {{ paged?.total ?? 0 }}건
+        <div class="ml-auto flex items-center gap-3">
+          <span class="text-xs text-muted-foreground tabular-nums">
+            {{ showingFrom }}–{{ showingTo }} / {{ paged?.total ?? 0 }}건
+          </span>
+          <button
+            type="button"
+            class="h-10 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-60"
+            :disabled="exportingXlsx"
+            @click="onExportXlsx"
+          >
+            <Loader2 v-if="exportingXlsx" class="h-4 w-4 animate-spin" />
+            <Download v-else class="h-4 w-4" />
+            내보내기
+          </button>
         </div>
       </div>
 
