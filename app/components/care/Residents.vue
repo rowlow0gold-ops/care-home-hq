@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, MapPin, ChevronLeft, ChevronRight, ArrowUpDown, Loader2, Building2 } from "@lucide/vue";
+import { Search, MapPin, ChevronLeft, ChevronRight, ArrowUpDown, Loader2, Building2, Plus } from "@lucide/vue";
 
 // HQ sees all branches; everyone else is pinned to their own.
 const { me } = useAuth();
@@ -122,6 +122,13 @@ function age(birth: string) {
   if (now.getMonth() < b.getMonth() || (now.getMonth() === b.getMonth() && now.getDate() < b.getDate())) a--;
   return a;
 }
+
+// HQ-only: 어르신 등록 form toggle
+const showCreateForm = ref(false);
+async function onCreated() {
+  showCreateForm.value = false;
+  await refresh();
+}
 </script>
 
 <template>
@@ -187,10 +194,31 @@ function age(birth: string) {
           <Loader2 v-if="pending" class="h-4 w-4 animate-spin" />
           <Search v-else class="h-4 w-4" />
         </button>
-        <div class="ml-auto text-xs text-muted-foreground tabular-nums">
-          {{ showingFrom }}–{{ showingTo }} / {{ paged?.total ?? 0 }}명
+        <div class="ml-auto flex items-center gap-3">
+          <span class="text-xs text-muted-foreground tabular-nums">
+            {{ showingFrom }}–{{ showingTo }} / {{ paged?.total ?? 0 }}명
+          </span>
+          <!-- HQ-only: register a new resident -->
+          <button
+            v-if="isHq"
+            type="button"
+            class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30"
+            @click="showCreateForm = true"
+          >
+            <Plus class="h-4 w-4" />
+            어르신 추가
+          </button>
         </div>
       </div>
+
+      <!-- HQ-only: create form, shown above the table when toggled -->
+      <ResidentForm
+        v-if="showCreateForm && isHq"
+        mode="create"
+        class="m-4"
+        @saved="onCreated"
+        @cancel="showCreateForm = false"
+      />
 
       <div v-if="pending && !paged" class="py-12 text-center text-sm text-muted-foreground">
         불러오는 중…

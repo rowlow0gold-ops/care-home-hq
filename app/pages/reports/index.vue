@@ -161,7 +161,6 @@ const statusLabel: Record<BillingRun["status"], string> = {
     <div class="rounded-xl border bg-card overflow-hidden">
       <div class="px-6 py-4 border-b">
         <h2 class="font-semibold">청구 이력</h2>
-        <p class="text-sm text-muted-foreground mt-0.5">전체 이력 · 필터로 좁혀보기</p>
       </div>
       <div class="px-6 py-3 border-b flex flex-wrap gap-2 items-center bg-muted/20">
         <!-- Fixed widths so disabled/visible-state changes don't shift the row -->
