@@ -660,11 +660,15 @@ const scheduleSummary = computed(() => {
                 <li
                   v-for="a in branchShifts.get(code) ?? []"
                   :key="a.assignment_id"
-                  class="flex items-center gap-2 text-sm"
                 >
-                  <UserCheck class="h-3.5 w-3.5 text-muted-foreground" />
-                  <span>{{ a.user_name }}</span>
-                  <span class="text-[10px] text-muted-foreground ml-auto">{{ roleLabel(a) }}</span>
+                  <NuxtLink
+                    :to="`/staff/${a.user_id}`"
+                    class="flex items-center gap-2 text-sm rounded-md px-2 py-1 -mx-2 hover:bg-muted/50 hover:text-primary transition-colors"
+                  >
+                    <UserCheck class="h-3.5 w-3.5 text-muted-foreground" />
+                    <span class="underline-offset-2 hover:underline">{{ a.user_name }}</span>
+                    <span class="text-[10px] text-muted-foreground ml-auto">{{ roleLabel(a) }}</span>
+                  </NuxtLink>
                 </li>
                 <li
                   v-if="(branchShifts.get(code) ?? []).length === 0"
