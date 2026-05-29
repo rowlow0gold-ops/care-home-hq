@@ -9,7 +9,7 @@ const toast = useToast();
 
 // Pre-filled for dev convenience — matches seeded demo accounts.
 // Remove these before any real production deploy.
-const email = ref("manager.seoul-hub@demo.com");
+const email = ref("hq@demo.com");
 const password = ref("admin1234");
 const showPwd = ref(false);
 const error = ref<string | null>(null);
