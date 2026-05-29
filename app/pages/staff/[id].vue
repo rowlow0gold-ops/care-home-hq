@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Mail, Phone, Building2, Briefcase, Calendar, FileText, Tag } from "@lucide/vue";
+import { ArrowLeft, Mail, Phone, Building2, Briefcase, Calendar, FileText, Tag, Wallet, Clock, CalendarOff } from "@lucide/vue";
 
 const route = useRoute();
 const id = route.params.id as string;
@@ -19,13 +19,47 @@ interface Person {
   employment_type_ko: string;
   hired_on: string | null;
   contract_end_on: string | null;
+  monthly_salary_krw: number | null;
+  hourly_rate_est_krw: number | null;
+}
+
+interface StaffBalance {
+  user_id: string;
+  annual_allocated: number;
+  annual_used: number;
+  annual_remaining: number;
 }
 
 const { data: p, error } = await useAsyncData(`staff-${id}`, () =>
   api.get<Person>(`/v1/staff/${id}`),
 );
 
+// All-branch leave balances; we filter to this user. If the caller lacks
+// access (RLS) the array is empty and we just hide the card.
+const { data: balances } = await useAsyncData(`staff-${id}-balances`, () =>
+  api.get<StaffBalance[]>("/v1/leave-requests/balances")
+       .then((r) => r ?? [])
+       .catch(() => [] as StaffBalance[]),
+);
+const myBalance = computed(() =>
+  (balances.value ?? []).find((b) => b.user_id === id) ?? null,
+);
+
+// Annual leave at year end is paid out as 연차수당 (Korean labor law).
+// Same rough average daily wage as on the 휴가 panel.
+const PAYOUT_PER_DAY_KRW = 130_000;
+const estimatedPayoutKRW = computed(() =>
+  myBalance.value
+    ? Math.round(myBalance.value.annual_remaining * PAYOUT_PER_DAY_KRW)
+    : 0,
+);
+
 useHead({ title: () => `${p.value?.full_name ?? "직원"} · 케어닥 HQ` });
+
+function fmtKRW(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  return `₩${n.toLocaleString("ko-KR")}`;
+}
 
 const tone: Record<string, string> = {
   regular: "bg-primary/10 text-primary",
@@ -126,13 +160,69 @@ const tone: Record<string, string> = {
         </div>
       </div>
 
-      <div class="mt-4 rounded-xl border bg-card p-5">
-        <h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-          최근 활동 (예정)
-        </h2>
-        <p class="text-sm text-muted-foreground">
-          최근 시프트 출근/퇴근 기록, 작성한 케어 로그, 사용한 휴가 등이 표시됩니다 (다음 슬라이스).
-        </p>
+      <!-- 급여 + 잔여 연차 — what the boss actually cares about -->
+      <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- 급여 -->
+        <div class="rounded-xl border bg-card p-5">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+            <Wallet class="h-3.5 w-3.5 text-primary" />
+            급여
+          </h2>
+          <dl class="text-sm space-y-2.5">
+            <div class="flex items-start gap-3">
+              <Wallet class="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <div class="flex-1">
+                <dt class="text-xs text-muted-foreground">월 기본급</dt>
+                <dd class="text-2xl font-bold tabular-nums text-foreground mt-0.5">
+                  {{ fmtKRW(p.monthly_salary_krw) }}
+                </dd>
+              </div>
+            </div>
+            <div v-if="p.employment_type === 'part_time' || p.hourly_rate_est_krw" class="flex items-start gap-3">
+              <Clock class="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <div class="flex-1">
+                <dt class="text-xs text-muted-foreground">
+                  {{ p.employment_type === 'part_time' ? '시급' : '시급 환산' }}
+                  <span class="text-[10px] opacity-70">(월급 ÷ 209h)</span>
+                </dt>
+                <dd class="font-medium tabular-nums text-foreground">
+                  {{ fmtKRW(p.hourly_rate_est_krw) }}
+                </dd>
+              </div>
+            </div>
+          </dl>
+        </div>
+
+        <!-- 잔여 연차 -->
+        <div class="rounded-xl border bg-card p-5">
+          <h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
+            <CalendarOff class="h-3.5 w-3.5 text-primary" />
+            잔여 연차
+          </h2>
+          <div v-if="myBalance" class="text-sm space-y-2.5">
+            <div class="flex items-start gap-3">
+              <Calendar class="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <div class="flex-1">
+                <dt class="text-xs text-muted-foreground">잔여 (부여 {{ myBalance.annual_allocated.toFixed(1) }}일 − 사용 {{ myBalance.annual_used.toFixed(1) }}일)</dt>
+                <dd class="text-2xl font-bold tabular-nums text-primary mt-0.5">
+                  {{ myBalance.annual_remaining.toFixed(1) }}일
+                </dd>
+              </div>
+            </div>
+            <div class="flex items-start gap-3">
+              <Wallet class="h-4 w-4 text-muted-foreground flex-shrink-0 mt-0.5" />
+              <div class="flex-1">
+                <dt class="text-xs text-muted-foreground">미사용 시 연차수당 (추정)</dt>
+                <dd class="font-medium tabular-nums text-foreground">
+                  ≈ {{ fmtKRW(estimatedPayoutKRW) }}
+                </dd>
+              </div>
+            </div>
+          </div>
+          <p v-else class="text-sm text-muted-foreground">
+            잔여 연차 정보를 불러올 수 없습니다.
+          </p>
+        </div>
       </div>
     </template>
   </div>
