@@ -72,10 +72,14 @@ const initialBranch =
 const q = ref("");
 const branchFilter = ref<string>(initialBranch);
 const empFilter = ref<string>("");
-// Applied filters — drive `filtered` / `branchScoped`
+// Applied filters — these drive the server-side fetch.
 const appliedQ = ref("");
 const appliedBranch = ref(branchFilter.value);
 const appliedEmp = ref("");
+
+const pageSize = ref(25);
+const page = ref(1);
+const pageSizeOptions = [10, 25, 50, 100];
 
 function applyFilters() {
   appliedQ.value = q.value.trim();
@@ -84,53 +88,35 @@ function applyFilters() {
   page.value = 1;
 }
 
-const { data: people, pending, error } = await useAsyncData(
-  "staff-list",
-  () => api.get<Person[]>("/v1/org/chart"),
+interface PagedOrg { items: Person[]; total: number; page: number; page_size: number }
+
+const { data: pagedData, pending, error, refresh } = await useAsyncData(
+  "staff-paged",
+  () => {
+    const params: Record<string, unknown> = {
+      q: appliedQ.value || undefined,
+      employment_type: appliedEmp.value || undefined,
+      page: page.value,
+      page_size: pageSize.value,
+    };
+    if (appliedBranch.value === "__hq__") {
+      params.hq_only = true;
+    } else if (appliedBranch.value) {
+      params.branch_id = appliedBranch.value;
+    }
+    return api.get<PagedOrg>("/v1/org/paged", params);
+  },
+  { watch: [appliedQ, appliedBranch, appliedEmp, page, pageSize] },
 );
 
-// Scoped to branch only — used as the "total" denominator so that when a
-// center is selected the counter reflects just that center, not the whole org.
-const branchScoped = computed(() => {
-  const rows = people.value ?? [];
-  if (appliedBranch.value === "__hq__") return rows.filter((p) => !p.branch_id);
-  if (appliedBranch.value) return rows.filter((p) => p.branch_id === appliedBranch.value);
-  return rows;
-});
-
-const filtered = computed(() => {
-  let rows = branchScoped.value;
-  if (appliedEmp.value) rows = rows.filter((p) => p.employment_type === appliedEmp.value);
-  if (appliedQ.value) {
-    const n = appliedQ.value.toLowerCase();
-    rows = rows.filter(
-      (p) =>
-        p.full_name.toLowerCase().includes(n) ||
-        p.email.toLowerCase().includes(n) ||
-        p.position_ko.includes(appliedQ.value),
-    );
-  }
-  return rows;
-});
-
-const pageSize = ref(25);
-const page = ref(1);
-const pageSizeOptions = [10, 25, 50, 100];
-const totalPages = computed(() =>
-  Math.max(1, Math.ceil(filtered.value.length / pageSize.value)),
-);
-watch([pageSize], () => { page.value = 1; });
+const paged = computed(() => pagedData.value?.items ?? []);
+const totalCount = computed(() => pagedData.value?.total ?? 0);
+const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize.value)));
 watch(totalPages, (n) => { if (page.value > n) page.value = n; });
-const paged = computed(() => {
-  const start = (page.value - 1) * pageSize.value;
-  return filtered.value.slice(start, start + pageSize.value);
-});
 const pageStart = computed(() =>
-  filtered.value.length === 0 ? 0 : (page.value - 1) * pageSize.value + 1,
+  totalCount.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1,
 );
-const pageEnd = computed(() =>
-  Math.min(page.value * pageSize.value, filtered.value.length),
-);
+const pageEnd = computed(() => Math.min(page.value * pageSize.value, totalCount.value));
 
 // 내보내기 — 직원 명단 XLSX 다운로드. HQ + 센터장 모두 사용.
 // (일괄 등록 = 데스크톱 앱에서)
@@ -428,7 +414,7 @@ const scheduleSummary = computed(() => {
           <Search v-else class="h-4 w-4" />
         </button>
         <div class="ml-auto flex items-center gap-3">
-          <span class="text-xs text-muted-foreground tabular-nums">{{ filtered.length }}명</span>
+          <span class="text-xs text-muted-foreground tabular-nums">{{ totalCount }}명</span>
           <!-- 내보내기 — HQ + 센터장 모두 사용 가능. 일괄 등록은 데스크톱 앱에서. -->
           <button
             type="button"
@@ -443,10 +429,7 @@ const scheduleSummary = computed(() => {
         </div>
       </div>
 
-      <div v-if="pending" class="py-12 text-center text-sm text-muted-foreground">불러오는 중…</div>
-      <div v-else-if="error" class="py-12 text-center text-sm text-destructive">불러오기 실패</div>
-
-      <table v-else class="w-full text-sm">
+      <table class="w-full text-sm">
         <thead>
           <tr class="text-left text-xs text-muted-foreground bg-muted/30">
             <th class="py-3 px-6 font-medium">이름</th>
@@ -458,7 +441,24 @@ const scheduleSummary = computed(() => {
             <th class="py-3 px-6 font-medium">전화</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody v-if="pending && !pagedData">
+          <tr v-for="i in 8" :key="`sk-${i}`" class="border-t">
+            <td class="py-3 px-6"><Skeleton w="5rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="6rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="5rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="3rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="3rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="9rem" /></td>
+            <td class="py-3 px-6"><Skeleton w="6rem" /></td>
+          </tr>
+        </tbody>
+        <tbody v-else-if="error">
+          <tr><td colspan="7" class="py-12 text-center text-destructive">
+            불러오기 실패
+            <button class="underline ml-2" @click="refresh()">다시 시도</button>
+          </td></tr>
+        </tbody>
+        <tbody v-else>
           <tr
             v-for="p in paged"
             :key="p.id"
@@ -487,18 +487,18 @@ const scheduleSummary = computed(() => {
             <td class="py-3 px-3 text-muted-foreground font-mono text-xs truncate max-w-[14rem]">{{ p.email }}</td>
             <td class="py-3 px-6 text-muted-foreground">{{ p.phone ?? "—" }}</td>
           </tr>
-          <tr v-if="filtered.length === 0">
+          <tr v-if="paged.length === 0">
             <td colspan="7" class="py-12 text-center text-muted-foreground">조건에 맞는 직원이 없습니다.</td>
           </tr>
         </tbody>
       </table>
 
       <div
-        v-if="filtered.length > 0"
+        v-if="totalCount > 0"
         class="px-6 py-3 border-t flex flex-wrap items-center gap-3 text-xs"
       >
         <div class="text-muted-foreground tabular-nums">
-          {{ pageStart }}–{{ pageEnd }} / 총 {{ filtered.length }}명
+          {{ pageStart }}–{{ pageEnd }} / 총 {{ totalCount }}명
         </div>
         <div class="ml-auto flex items-center gap-2">
           <label class="text-muted-foreground">페이지당</label>
