@@ -80,9 +80,14 @@ const branchFilter = ref<string>(initialBranch);
 type DateScope = "month" | "year" | "all";
 const dateScope = ref<DateScope>("month");
 
+// Default to LAST month — current month's 청구 isn't closed yet
+// (real LTCI filings happen ~5th of the following month), so the current
+// month's chart would always read "데이터 없음". Last month is the
+// "what just happened?" view managers actually want on a daily standup.
 const now = new Date();
-const selectedYear  = ref<number>(now.getFullYear());
-const selectedMonth = ref<number>(now.getMonth() + 1);   // 1-12
+const lastMonthAnchor = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+const selectedYear  = ref<number>(lastMonthAnchor.getFullYear());
+const selectedMonth = ref<number>(lastMonthAnchor.getMonth() + 1);   // 1-12
 
 // Years offered: current year and the four prior.
 const yearOptions  = Array.from({ length: 5 },  (_, i) => now.getFullYear() - i);
