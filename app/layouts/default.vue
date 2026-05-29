@@ -8,6 +8,7 @@ import {
   LogOut,
   Heart,
   Network,
+  Send,
 } from "@lucide/vue";
 
 const { me, logout } = useAuth();
@@ -20,6 +21,8 @@ const nav = computed(() => [
   { to: "/care", label: "케어 관리", icon: HeartPulse, minRole: 1 },
   { to: "/org", label: "조직도", icon: Network, minRole: 2 },
   { to: "/reports", label: "보고서", icon: FileBarChart, minRole: 3 },
+  // 가족 알림 — HQ-only. 본부에서 사진 검수 후 Telegram 발송.
+  { to: "/family-notify", label: "가족 알림", icon: Send, minRole: 4 },
   { to: "/settings", label: "설정", icon: Settings, minRole: 3 },
 ]);
 
