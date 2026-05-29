@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, MapPin, ChevronLeft, ChevronRight, ArrowUpDown, Loader2, Building2, Upload, Download } from "@lucide/vue";
+import { Search, MapPin, ChevronLeft, ChevronRight, ArrowUpDown, Loader2, Building2, Download } from "@lucide/vue";
 
 // HQ sees all branches; everyone else is pinned to their own.
 const { me } = useAuth();
@@ -123,14 +123,10 @@ function age(birth: string) {
   return a;
 }
 
-// HQ-only: 어르신 엑셀 가져오기 (single-add 폼은 사용하지 않습니다 —
-// 케어홈 운영 흐름상 명단은 항상 엑셀 단위로 들어옵니다)
-const showImportDialog = ref(false);
-async function onImported() {
-  await refresh();
-}
-
 // 내보내기 — 현재 활성 어르신 명단을 XLSX로 다운로드 (Nuxt proxy → care-home-server)
+//
+// 일괄 등록 (가져오기) 은 데스크톱 (Tauri) 앱에서 처리합니다 — 본 웹은
+// 본사가 빠르게 조회/소량 수정하는 용도. 시설 운영자는 데스크톱에서 명단 업로드.
 const exportingXlsx = ref(false);
 const toast = useToast();
 async function onExportXlsx() {
@@ -239,25 +235,8 @@ async function onExportXlsx() {
             <Download v-else class="h-4 w-4" />
             내보내기
           </button>
-          <button
-            v-if="isHq"
-            type="button"
-            class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30"
-            @click="showImportDialog = true"
-          >
-            <Upload class="h-4 w-4" />
-            가져오기
-          </button>
         </div>
       </div>
-
-      <!-- HQ-only: bulk import dialog -->
-      <ResidentImportDialog
-        v-if="isHq"
-        v-model:open="showImportDialog"
-        :branch-id="appliedBranch || null"
-        @imported="onImported"
-      />
 
       <div v-if="pending && !paged" class="py-12 text-center text-sm text-muted-foreground">
         불러오는 중…

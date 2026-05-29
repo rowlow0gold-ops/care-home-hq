@@ -12,6 +12,7 @@ import {
   MapPin,
   UserCheck,
   Loader2,
+  Download,
 } from "@lucide/vue";
 
 useHead({ title: "직원 관리 · 케어닥 HQ" });
@@ -130,6 +131,37 @@ const pageStart = computed(() =>
 const pageEnd = computed(() =>
   Math.min(page.value * pageSize.value, filtered.value.length),
 );
+
+// 내보내기 — 직원 명단 XLSX 다운로드. HQ + 센터장 모두 사용.
+// (일괄 등록 = 데스크톱 앱에서)
+const exportingXlsx = ref(false);
+const exportToast = useToast();
+async function onExportStaffXlsx() {
+  if (exportingXlsx.value) return;
+  exportingXlsx.value = true;
+  try {
+    const res = await fetch("/api/v1/staff/export.xlsx", { credentials: "include" });
+    if (!res.ok) throw new Error(`다운로드 실패 (${res.status})`);
+    const blob = await res.blob();
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const fallback = `직원_명단_${stamp}.xlsx`;
+    const cd = res.headers.get("Content-Disposition") ?? "";
+    const m  = /filename\*=UTF-8''([^;]+)/i.exec(cd) ?? /filename="([^"]+)"/i.exec(cd);
+    const filename = m ? decodeURIComponent(m[1]) : fallback;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e: any) {
+    exportToast.error(e?.message ?? "다운로드 실패", "내보내기 실패");
+  } finally {
+    exportingXlsx.value = false;
+  }
+}
 
 const tone: Record<string, string> = {
   regular: "bg-primary/10 text-primary",
@@ -365,8 +397,19 @@ const scheduleSummary = computed(() => {
           <Loader2 v-if="pending" class="h-4 w-4 animate-spin" />
           <Search v-else class="h-4 w-4" />
         </button>
-        <div class="ml-auto text-xs text-muted-foreground tabular-nums">
-          {{ filtered.length }}명
+        <div class="ml-auto flex items-center gap-3">
+          <span class="text-xs text-muted-foreground tabular-nums">{{ filtered.length }}명</span>
+          <!-- 내보내기 — HQ + 센터장 모두 사용 가능. 일괄 등록은 데스크톱 앱에서. -->
+          <button
+            type="button"
+            class="h-10 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-60"
+            :disabled="exportingXlsx"
+            @click="onExportStaffXlsx"
+          >
+            <Loader2 v-if="exportingXlsx" class="h-4 w-4 animate-spin" />
+            <Download v-else class="h-4 w-4" />
+            내보내기
+          </button>
         </div>
       </div>
 
