@@ -415,11 +415,6 @@ async function onConfirmDeactivate() {
           </FieldRow>
         </div>
 
-        <p class="text-[11px] text-muted-foreground leading-relaxed">
-          본사 (HQ) entry는 조직도 표시용 디렉터리 라벨입니다. 급여 · 입사일 ·
-          연차 같은 HR 정보는 데스크톱 (Tauri) 앱에서 별도 관리합니다.
-        </p>
-
         <div class="flex items-center justify-end gap-2 pt-3 border-t">
           <button
             type="button"

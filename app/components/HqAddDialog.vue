@@ -128,10 +128,6 @@ async function onSubmit() {
           </div>
           <div class="flex-1 min-w-0">
             <h2 class="text-base font-semibold">본사 직원 추가</h2>
-            <p class="text-xs text-muted-foreground mt-0.5 leading-relaxed">
-              조직도 표시용 디렉터리 등록입니다. 급여 · 입사일 같은 HR 정보는
-              데스크톱 앱에서 별도 관리합니다.
-            </p>
           </div>
           <button
             type="button"
