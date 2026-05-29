@@ -150,7 +150,7 @@ async function onExportXlsx() {
     a.remove();
     URL.revokeObjectURL(url);
   } catch (e: any) {
-    toast.error(e?.message ?? "다운로드 실패", "내보내기 실패");
+    toast.error(e?.message ?? "다운로드 실패", "다운로드 실패");
   } finally {
     exportingXlsx.value = false;
   }
@@ -233,7 +233,7 @@ async function onExportXlsx() {
           >
             <Loader2 v-if="exportingXlsx" class="h-4 w-4 animate-spin" />
             <Download v-else class="h-4 w-4" />
-            내보내기
+            다운로드
           </button>
         </div>
       </div>

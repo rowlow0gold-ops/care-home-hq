@@ -143,7 +143,7 @@ async function onExportStaffXlsx() {
     a.remove();
     URL.revokeObjectURL(url);
   } catch (e: any) {
-    exportToast.error(e?.message ?? "다운로드 실패", "내보내기 실패");
+    exportToast.error(e?.message ?? "다운로드 실패", "다운로드 실패");
   } finally {
     exportingXlsx.value = false;
   }
@@ -173,7 +173,7 @@ async function onExportScheduleXlsx() {
     document.body.appendChild(a); a.click(); a.remove();
     URL.revokeObjectURL(url);
   } catch (e: any) {
-    exportToast.error(e?.message ?? "다운로드 실패", "내보내기 실패");
+    exportToast.error(e?.message ?? "다운로드 실패", "다운로드 실패");
   } finally {
     exportingScheduleXlsx.value = false;
   }
@@ -424,7 +424,7 @@ const scheduleSummary = computed(() => {
           >
             <Loader2 v-if="exportingXlsx" class="h-4 w-4 animate-spin" />
             <Download v-else class="h-4 w-4" />
-            내보내기
+            다운로드
           </button>
         </div>
       </div>
@@ -588,7 +588,7 @@ const scheduleSummary = computed(() => {
           >
             <Loader2 v-if="exportingScheduleXlsx" class="h-4 w-4 animate-spin" />
             <Download v-else class="h-4 w-4" />
-            내보내기
+            다운로드
           </button>
         </div>
       </div>
