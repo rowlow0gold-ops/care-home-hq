@@ -300,26 +300,33 @@ const monthlyTrend = computed(() => {
   };
 });
 
-// Top branches by billing in the active window. Single-branch view => empty.
-const topBranches = computed(() => {
+// Top branches by billing — split hub vs satellite so the smaller
+// satellite numbers aren't visually crushed by the 광역센터 totals.
+// Each chart shows the top 3 of its kind.
+function topByType(branchType: "hub" | "satellite", color: string, label: string) {
   if (branchFilter.value) return { labels: [], datasets: [] };
   const items = (data.value?.branches ?? [])
+    .filter((b) => b.branch_type === branchType)
     .map((b) => ({ name: b.name, amount: b.last_billing_amount ?? 0 }))
     .filter((b) => b.amount > 0)
     .sort((a, b) => b.amount - a.amount)
-    .slice(0, 10);
+    .slice(0, 3);
   return {
     labels: items.map((b) => b.name),
-    datasets: [
-      {
-        label: "지점별 매출",
-        data: items.map((b) => b.amount),
-        backgroundColor: "hsla(158, 70%, 32%, 0.7)",
-        borderRadius: 4,
-      },
-    ],
+    datasets: [{
+      label,
+      data: items.map((b) => b.amount),
+      backgroundColor: color,
+      borderRadius: 4,
+    }],
   };
-});
+}
+const topHubs = computed(() =>
+  topByType("hub", "hsla(158, 70%, 32%, 0.75)", "광역센터 매출"),
+);
+const topSats = computed(() =>
+  topByType("satellite", "hsla(212, 70%, 50%, 0.75)", "위성센터 매출"),
+);
 
 // Shared chart options — KRW formatting on the y-axis tooltips.
 function krwShort(v: number) {
@@ -508,9 +515,9 @@ const tablePageEnd = computed(() =>
     </div>
 
     <!-- Charts: monthly trend for any manager (HQ + 센터장),
-         peer-comparison bar only for HQ -->
+         peer-comparison bars only for HQ (split hub / satellite). -->
     <div v-if="isManager" class="grid grid-cols-1 gap-4 mb-6"
-         :class="isHq ? 'lg:grid-cols-2' : ''">
+         :class="isHq ? 'lg:grid-cols-3' : ''">
       <!-- Monthly revenue trend (always for managers) -->
       <div class="rounded-xl border bg-card p-5">
         <div class="flex items-center gap-2 mb-3">
@@ -533,14 +540,30 @@ const tablePageEnd = computed(() =>
       </div>
 
       <!-- Top branches by revenue (HQ only — branch managers can't see peers) -->
+      <!-- Split: 광역센터 vs 위성센터, 매출 스케일이 10배 차이라 같이 두면 위성이 사라짐. -->
       <div v-if="isHq" class="rounded-xl border bg-card p-5">
         <div class="flex items-center gap-2 mb-3">
           <BarChart3 class="h-4 w-4 text-primary" />
-          <h3 class="text-sm font-semibold">{{ sinceLabel }} 지점별 매출 (상위 10)</h3>
+          <h3 class="text-sm font-semibold">{{ sinceLabel }} 광역센터 매출 (상위 3)</h3>
         </div>
         <div class="h-64 relative">
-          <Bar v-if="!branchFilter && (topBranches.datasets[0]?.data?.length ?? 0) > 0"
-               :data="topBranches" :options="barOpts" />
+          <Bar v-if="!branchFilter && (topHubs.datasets[0]?.data?.length ?? 0) > 0"
+               :data="topHubs" :options="barOpts" />
+          <div v-else class="absolute inset-0 grid place-items-center text-sm text-muted-foreground">
+            <template v-if="branchFilter">단일 지점에서는 표시되지 않습니다</template>
+            <template v-else>해당 기간 청구 데이터가 없습니다</template>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="isHq" class="rounded-xl border bg-card p-5">
+        <div class="flex items-center gap-2 mb-3">
+          <BarChart3 class="h-4 w-4 text-primary" />
+          <h3 class="text-sm font-semibold">{{ sinceLabel }} 위성센터 매출 (상위 3)</h3>
+        </div>
+        <div class="h-64 relative">
+          <Bar v-if="!branchFilter && (topSats.datasets[0]?.data?.length ?? 0) > 0"
+               :data="topSats" :options="barOpts" />
           <div v-else class="absolute inset-0 grid place-items-center text-sm text-muted-foreground">
             <template v-if="branchFilter">단일 지점에서는 표시되지 않습니다</template>
             <template v-else>해당 기간 청구 데이터가 없습니다</template>
