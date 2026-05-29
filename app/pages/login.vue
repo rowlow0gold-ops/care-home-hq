@@ -9,7 +9,7 @@ const toast = useToast();
 
 // Pre-filled for dev convenience — matches seeded demo accounts.
 // Remove these before any real production deploy.
-const email = ref("manager.gangnam@demo.com");
+const email = ref("manager.seoul-hub@demo.com");
 const password = ref("admin1234");
 const showPwd = ref(false);
 const error = ref<string | null>(null);
@@ -20,14 +20,13 @@ const hqAccount = { email: "hq@demo.com", label: "본사 관리자", icon: Shiel
 
 // Web admin is for HQ + Hub managers only. Satellite (Sat) center managers
 // access a different interface, so their accounts are intentionally not
-// listed here as demo logins.
+// listed here as demo logins. Matches the 5-metro-hub regional reseed.
 const branches = [
-  // ---- Hubs (residential + day care + home visit) ----
-  { slug: "gangnam",      name: "강남광역센터",      email: "manager.gangnam@demo.com",      type: "hub" as const },
-  { slug: "songpa",       name: "송파광역센터",      email: "manager.songpa@demo.com",       type: "hub" as const },
-  { slug: "mapo",         name: "마포광역센터",      email: "manager.mapo@demo.com",         type: "hub" as const },
-  { slug: "yeongdeungpo", name: "영등포광역센터",    email: "manager.yeongdeungpo@demo.com", type: "hub" as const },
-  { slug: "bundang",      name: "분당광역센터",      email: "manager.bundang@demo.com",      type: "hub" as const },
+  { slug: "seoul-hub",   name: "서울광역센터", email: "manager.seoul-hub@demo.com",   type: "hub" as const },
+  { slug: "busan-hub",   name: "부산광역센터", email: "manager.busan-hub@demo.com",   type: "hub" as const },
+  { slug: "daejeon-hub", name: "대전광역센터", email: "manager.daejeon-hub@demo.com", type: "hub" as const },
+  { slug: "daegu-hub",   name: "대구광역센터", email: "manager.daegu-hub@demo.com",   type: "hub" as const },
+  { slug: "gwangju-hub", name: "광주광역센터", email: "manager.gwangju-hub@demo.com", type: "hub" as const },
 ];
 
 const branchQuery = ref("");
