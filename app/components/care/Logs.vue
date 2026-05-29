@@ -232,7 +232,12 @@ async function onExportXlsx() {
           <ClipboardList v-else class="h-4 w-4 text-muted-foreground flex-shrink-0 mt-1" />
           <div class="flex-1 min-w-0">
             <div class="flex items-baseline gap-2 flex-wrap">
-              <span class="font-medium text-sm">{{ log.resident_name }}</span>
+              <NuxtLink
+                :to="`/residents/${log.resident_id}`"
+                class="font-medium text-sm hover:text-primary hover:underline underline-offset-2"
+              >
+                {{ log.resident_name }}
+              </NuxtLink>
               <span v-if="log.branch_name" class="text-xs text-muted-foreground">· {{ log.branch_name }}</span>
               <span class="text-xs font-medium uppercase text-muted-foreground">{{ log.category }}</span>
               <span class="text-xs text-muted-foreground">{{ fmtTime(log.recorded_at) }}</span>
