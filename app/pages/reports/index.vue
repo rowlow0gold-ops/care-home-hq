@@ -31,31 +31,32 @@ const { data: runs } = await useAsyncData("billing-runs", () =>
   api.get<BillingRun[]>("/v1/billing/runs"),
 );
 
-// Draft filters (committed only when 검색 is clicked). The 월 filter uses
-// the same two-select pattern as the dashboard so the look is consistent.
+// Draft filters (committed only when 검색 is clicked). Kept as plain strings
+// so v-model never has to choose between number / NaN / "" — the empty
+// string is the universally-correct "전체" value for both selects.
 const filterBranch = ref<string>(useDefaultBranch());
 const filterStatus = ref<string>("");
 const now          = new Date();
-const yearOptions  = Array.from({ length: 5 },  (_, i) => now.getFullYear() - i);
-const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
-const filterYear   = ref<number | "">("");        // "" = 전체 연도
-const filterMonth  = ref<number | "">("");        // "" = 전체 월
-function pad2(n: number) { return String(n).padStart(2, "0"); }
-// Combined for the actual filter logic (YYYY or YYYY-MM, or "" for all)
+const yearOptions  = Array.from({ length: 5 },  (_, i) => String(now.getFullYear() - i));
+const monthOptions = Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, "0"));
+const filterYear   = ref<string>("");        // "" = 전체 연도, else "2026"
+const filterMonth  = ref<string>("");        // "" = 전체 월,  else "05"
+
+// Combined string the filter SQL would match against `year_month` LIKE prefix.
 const filterYearMonth = computed(() => {
-  if (!filterYear.value) return "";
-  if (!filterMonth.value) return String(filterYear.value);
-  return `${filterYear.value}-${pad2(Number(filterMonth.value))}`;
+  if (!filterYear.value)  return "";                                  // 전체
+  if (!filterMonth.value) return filterYear.value;                    // 2026
+  return `${filterYear.value}-${filterMonth.value}`;                  // 2026-05
 });
 
 // Applied filters
-const appliedBranch = ref(filterBranch.value);
-const appliedStatus = ref(filterStatus.value);
+const appliedBranch    = ref(filterBranch.value);
+const appliedStatus    = ref(filterStatus.value);
 const appliedYearMonth = ref<string>("");
 
 function applyFilters() {
-  appliedBranch.value = filterBranch.value;
-  appliedStatus.value = filterStatus.value;
+  appliedBranch.value    = filterBranch.value;
+  appliedStatus.value    = filterStatus.value;
   appliedYearMonth.value = filterYearMonth.value;
 }
 
@@ -142,10 +143,6 @@ const statusLabel: Record<BillingRun["status"], string> = {
   <div class="px-8 py-6">
     <header class="mb-6">
       <h1 class="text-2xl font-bold">보고서</h1>
-      <p class="text-sm text-muted-foreground">
-        월별 장기요양보험(LTCI) 청구 이력. 청구서 생성은 데스크톱 앱에서, 완료된 XLSX는
-        아래에서 다운로드 후 국민건강보험공단 포털에 직접 업로드하세요.
-      </p>
     </header>
 
     <div v-if="downloadError" class="mb-4 text-sm text-destructive bg-destructive/10 p-2 rounded">
@@ -160,19 +157,19 @@ const statusLabel: Record<BillingRun["status"], string> = {
       <div class="px-6 py-3 border-b flex flex-wrap gap-2 items-center bg-muted/20">
         <!-- Fixed widths so disabled/visible-state changes don't shift the row -->
         <select
-          v-model.number="filterYear"
+          v-model="filterYear"
           class="h-9 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option value="">전체 연도</option>
           <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}년</option>
         </select>
         <select
-          v-model.number="filterMonth"
+          v-model="filterMonth"
           :disabled="!filterYear"
           class="h-9 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 disabled:opacity-50 disabled:cursor-not-allowed"
         >
           <option value="">전체 월</option>
-          <option v-for="m in monthOptions" :key="m" :value="m">{{ m }}월</option>
+          <option v-for="m in monthOptions" :key="m" :value="m">{{ parseInt(m, 10) }}월</option>
         </select>
         <select
           v-model="filterBranch"
@@ -237,8 +234,11 @@ const statusLabel: Record<BillingRun["status"], string> = {
               {{ fmtTime(r.triggered_at) }} → {{ fmtTime(r.completed_at) }}
             </td>
             <td class="py-3 px-6 text-right">
+              <!-- Backend builds XLSX on-demand from residents + run metadata,
+                   so any run (even seeded ones) is downloadable. Only hide
+                   the button for failed runs. -->
               <button
-                v-if="r.has_xlsx"
+                v-if="r.status !== 'failed'"
                 class="inline-flex items-center gap-1.5 h-8 px-3 rounded-md border border-primary/40 bg-transparent text-primary text-xs font-semibold uppercase tracking-wide hover:bg-primary/10 hover:border-primary transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 :disabled="downloadingId === r.id"
                 @click="downloadXlsx(r)"

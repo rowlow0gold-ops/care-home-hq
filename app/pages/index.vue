@@ -389,11 +389,6 @@ const tablePageEnd = computed(() =>
     <header class="mb-6 flex items-end justify-between gap-4 flex-wrap">
       <div>
         <h1 class="text-3xl font-bold tracking-tight">대시보드</h1>
-        <p class="text-sm text-muted-foreground mt-1">
-          {{ branchFilter
-            ? (data?.branches?.find((b) => b.id === branchFilter)?.name ?? "지점") + " 운영 현황"
-            : "전 지점 운영 현황 한눈에 보기" }}
-        </p>
       </div>
       <div class="flex items-center gap-2 flex-wrap">
         <Filter class="h-4 w-4 text-muted-foreground" />

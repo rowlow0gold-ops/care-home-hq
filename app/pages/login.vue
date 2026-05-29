@@ -18,8 +18,9 @@ const submitting = ref(false);
 // Demo accounts seeded in the DB. All share password "admin1234".
 const hqAccount = { email: "hq@demo.com", label: "본사 관리자", icon: Shield };
 
-// All branches per spec v1.1: 5 Hubs (full-service) + 20 Satellites (day care
-// + home visit only). Search + scroll keep the panel usable at this density.
+// Web admin is for HQ + Hub managers only. Satellite (Sat) center managers
+// access a different interface, so their accounts are intentionally not
+// listed here as demo logins.
 const branches = [
   // ---- Hubs (residential + day care + home visit) ----
   { slug: "gangnam",      name: "강남광역센터",      email: "manager.gangnam@demo.com",      type: "hub" as const },
@@ -27,27 +28,6 @@ const branches = [
   { slug: "mapo",         name: "마포광역센터",      email: "manager.mapo@demo.com",         type: "hub" as const },
   { slug: "yeongdeungpo", name: "영등포광역센터",    email: "manager.yeongdeungpo@demo.com", type: "hub" as const },
   { slug: "bundang",      name: "분당광역센터",      email: "manager.bundang@demo.com",      type: "hub" as const },
-  // ---- Satellites (day care + home visit only) ----
-  { slug: "gangdong",   name: "강동센터",   email: "manager.gangdong@demo.com",   type: "satellite" as const },
-  { slug: "gangbuk",    name: "강북센터",   email: "manager.gangbuk@demo.com",    type: "satellite" as const },
-  { slug: "gangseo",    name: "강서센터",   email: "manager.gangseo@demo.com",    type: "satellite" as const },
-  { slug: "gwanak",     name: "관악센터",   email: "manager.gwanak@demo.com",     type: "satellite" as const },
-  { slug: "gwangjin",   name: "광진센터",   email: "manager.gwangjin@demo.com",   type: "satellite" as const },
-  { slug: "guro",       name: "구로센터",   email: "manager.guro@demo.com",       type: "satellite" as const },
-  { slug: "nowon",      name: "노원센터",   email: "manager.nowon@demo.com",      type: "satellite" as const },
-  { slug: "dobong",     name: "도봉센터",   email: "manager.dobong@demo.com",     type: "satellite" as const },
-  { slug: "dongdaemun", name: "동대문센터", email: "manager.dongdaemun@demo.com", type: "satellite" as const },
-  { slug: "dongjak",    name: "동작센터",   email: "manager.dongjak@demo.com",    type: "satellite" as const },
-  { slug: "seodaemun",  name: "서대문센터", email: "manager.seodaemun@demo.com",  type: "satellite" as const },
-  { slug: "seocho",     name: "서초센터",   email: "manager.seocho@demo.com",     type: "satellite" as const },
-  { slug: "seongdong",  name: "성동센터",   email: "manager.seongdong@demo.com",  type: "satellite" as const },
-  { slug: "seongbuk",   name: "성북센터",   email: "manager.seongbuk@demo.com",   type: "satellite" as const },
-  { slug: "yangcheon",  name: "양천센터",   email: "manager.yangcheon@demo.com",  type: "satellite" as const },
-  { slug: "yongsan",    name: "용산센터",   email: "manager.yongsan@demo.com",    type: "satellite" as const },
-  { slug: "eunpyeong",  name: "은평센터",   email: "manager.eunpyeong@demo.com",  type: "satellite" as const },
-  { slug: "jongno",     name: "종로센터",   email: "manager.jongno@demo.com",     type: "satellite" as const },
-  { slug: "junggu",     name: "중구센터",   email: "manager.junggu@demo.com",     type: "satellite" as const },
-  { slug: "jungnang",   name: "중랑센터",   email: "manager.jungnang@demo.com",   type: "satellite" as const },
 ];
 
 const branchQuery = ref("");

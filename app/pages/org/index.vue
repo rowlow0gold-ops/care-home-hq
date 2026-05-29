@@ -146,9 +146,6 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
   <div class="px-8 py-6 max-w-7xl mx-auto">
     <header class="mb-6">
       <h1 class="text-3xl font-bold tracking-tight">조직도</h1>
-      <p class="text-sm text-muted-foreground mt-1">
-        본사 → 허브(광역센터) → 위성센터 3계층. 모든 직원이 전사 구조를 확인할 수 있습니다.
-      </p>
     </header>
 
     <div v-if="pending" class="space-y-3">

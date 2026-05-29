@@ -284,9 +284,6 @@ const scheduleSummary = computed(() => {
   <div class="px-8 py-6 max-w-7xl mx-auto">
     <header class="mb-4">
       <h1 class="text-3xl font-bold tracking-tight">직원 관리</h1>
-      <p class="text-sm text-muted-foreground mt-1">
-        전 지점 직원 + 본사 인력 · 근무 일정
-      </p>
     </header>
 
     <!-- Tabs -->

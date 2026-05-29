@@ -19,9 +19,6 @@ const roleLabel: Record<string, string> = {
   <div class="px-8 py-6 max-w-4xl mx-auto">
     <header class="mb-6">
       <h1 class="text-3xl font-bold tracking-tight">설정</h1>
-      <p class="text-sm text-muted-foreground mt-1">
-        개인 계정 정보 확인 및 화면 테마 전환.
-      </p>
     </header>
 
     <div class="space-y-4">

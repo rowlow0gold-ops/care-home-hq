@@ -32,9 +32,6 @@ const tabs: { key: Tab; label: string; icon: any }[] = [
   <div class="px-8 py-6 max-w-7xl mx-auto">
     <header class="mb-6">
       <h1 class="text-3xl font-bold tracking-tight">케어 관리</h1>
-      <p class="text-sm text-muted-foreground mt-1">
-        어르신 · 케어 기록 · 투약을 한 화면에서 관리합니다.
-      </p>
     </header>
 
     <!-- Tab bar -->

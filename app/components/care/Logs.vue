@@ -100,9 +100,6 @@ function fmtTime(iso: string) {
 
 <template>
   <div>
-    <p class="text-sm text-muted-foreground mb-4">
-      전 지점 케어 기록 통합 피드. 이상징후로 표시된 항목은 강조 표시됩니다.
-    </p>
     <div class="rounded-xl border bg-card overflow-hidden">
       <div class="px-6 py-4 border-b flex flex-wrap items-center gap-3">
         <div class="relative flex-1 min-w-[200px] max-w-sm">
