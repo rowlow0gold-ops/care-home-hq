@@ -1,133 +1,116 @@
 <script setup lang="ts">
 /**
- * Two-step destructive confirmation. Used everywhere we don't want native
- * confirm() (ugly + can't theme + can't show a description / colored CTA).
+ * Themed two-step confirmation modal. Uses v-model:open for visibility
+ * (controllable from parent) and emits 'confirm' / 'cancel'.
  *
  * Usage:
- *   const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
- *   ...
- *   const ok = await confirmRef.value?.open({
- *     title: "퇴직 처리",
- *     description: "정말 김XX 직원을 퇴직 처리하시겠습니까?",
- *     confirmLabel: "퇴직 처리",
- *     tone: "destructive",
- *   });
- *   if (ok) await doIt();
- *
- *   <ConfirmDialog ref="confirmRef" />
+ *   const showConfirm = ref(false);
+ *   <ConfirmDialog
+ *     v-model:open="showConfirm"
+ *     title="퇴직 처리"
+ *     description="정말 처리합니까?"
+ *     confirm-label="퇴직 처리"
+ *     tone="destructive"
+ *     @confirm="doIt"
+ *   />
+ *   then: showConfirm.value = true
  */
 import { AlertTriangle, X } from "@lucide/vue";
 
-interface OpenArgs {
-  title: string;
-  description?: string;
-  confirmLabel?: string;
-  cancelLabel?: string;
-  /** Visual tone of the confirm button. Default 'primary'. */
-  tone?: "primary" | "destructive";
-}
+const props = withDefaults(
+  defineProps<{
+    open: boolean;
+    title: string;
+    description?: string;
+    confirmLabel?: string;
+    cancelLabel?: string;
+    tone?: "primary" | "destructive";
+  }>(),
+  {
+    description: undefined,
+    confirmLabel: "확인",
+    cancelLabel: "취소",
+    tone: "primary",
+  },
+);
 
-const visible = ref(false);
-const args = ref<OpenArgs>({ title: "" });
-let resolver: ((v: boolean) => void) | null = null;
+const emit = defineEmits<{
+  "update:open": [value: boolean];
+  confirm: [];
+  cancel: [];
+}>();
 
-function open(a: OpenArgs): Promise<boolean> {
-  args.value = { confirmLabel: "확인", cancelLabel: "취소", tone: "primary", ...a };
-  visible.value = true;
-  return new Promise((res) => { resolver = res; });
-}
-function close(result: boolean) {
-  visible.value = false;
-  resolver?.(result);
-  resolver = null;
+function close(via: "confirm" | "cancel") {
+  emit("update:open", false);
+  emit(via);
 }
 function onBackdrop(e: MouseEvent) {
-  if (e.target === e.currentTarget) close(false);
+  if (e.target === e.currentTarget) close("cancel");
 }
 function onKey(e: KeyboardEvent) {
-  if (!visible.value) return;
-  if (e.key === "Escape") close(false);
-  else if (e.key === "Enter") close(true);
+  if (!props.open) return;
+  if (e.key === "Escape") { e.preventDefault(); close("cancel"); }
+  else if (e.key === "Enter") { e.preventDefault(); close("confirm"); }
 }
-
 onMounted(() => window.addEventListener("keydown", onKey));
 onUnmounted(() => window.removeEventListener("keydown", onKey));
-
-defineExpose({ open });
 </script>
 
 <template>
   <Teleport to="body">
-    <Transition
-      enter-active-class="transition duration-150 ease-out"
-      enter-from-class="opacity-0"
-      leave-active-class="transition duration-100 ease-in"
-      leave-to-class="opacity-0"
+    <div
+      v-if="open"
+      class="fixed inset-0 z-[110] bg-foreground/40 backdrop-blur-sm flex items-center justify-center p-4"
+      role="presentation"
+      @click="onBackdrop"
     >
       <div
-        v-if="visible"
-        class="fixed inset-0 z-[110] bg-foreground/40 backdrop-blur-sm flex items-center justify-center p-4"
-        @click="onBackdrop"
+        class="bg-card text-foreground rounded-xl shadow-2xl border max-w-md w-full p-5"
+        role="dialog"
+        aria-modal="true"
       >
-        <Transition
-          enter-active-class="transition duration-150 ease-out"
-          enter-from-class="opacity-0 scale-95 translate-y-1"
-          leave-active-class="transition duration-100 ease-in"
-          leave-to-class="opacity-0 scale-95"
-          appear
-        >
+        <div class="flex items-start gap-3 mb-3">
           <div
-            v-if="visible"
-            class="bg-card text-foreground rounded-xl shadow-2xl border max-w-md w-full p-5"
-            role="dialog"
-            aria-modal="true"
+            class="h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0"
+            :class="tone === 'destructive'
+              ? 'bg-destructive/10 text-destructive'
+              : 'bg-primary/10 text-primary'"
           >
-            <div class="flex items-start gap-3 mb-3">
-              <div
-                class="h-10 w-10 rounded-full flex items-center justify-center flex-shrink-0"
-                :class="args.tone === 'destructive'
-                  ? 'bg-destructive/10 text-destructive'
-                  : 'bg-primary/10 text-primary'"
-              >
-                <AlertTriangle class="h-5 w-5" />
-              </div>
-              <div class="flex-1 min-w-0">
-                <h2 class="text-base font-semibold">{{ args.title }}</h2>
-                <p
-                  v-if="args.description"
-                  class="text-sm text-muted-foreground mt-1 whitespace-pre-line"
-                >
-                  {{ args.description }}
-                </p>
-              </div>
-              <button
-                type="button"
-                class="h-8 w-8 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"
-                aria-label="닫기"
-                @click="close(false)"
-              >
-                <X class="h-4 w-4" />
-              </button>
-            </div>
-
-            <div class="flex items-center justify-end gap-2 mt-5">
-              <button
-                type="button"
-                class="h-10 px-4 rounded-lg border border-input bg-background text-sm hover:bg-muted"
-                @click="close(false)"
-              >{{ args.cancelLabel }}</button>
-              <button
-                type="button"
-                class="h-10 px-4 rounded-lg text-sm font-semibold focus:outline-none focus:ring-4"
-                :class="args.tone === 'destructive'
-                  ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90 focus:ring-destructive/30'
-                  : 'bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-primary/30'"
-                @click="close(true)"
-              >{{ args.confirmLabel }}</button>
-            </div>
+            <AlertTriangle class="h-5 w-5" />
           </div>
-        </Transition>
+          <div class="flex-1 min-w-0">
+            <h2 class="text-base font-semibold">{{ title }}</h2>
+            <p
+              v-if="description"
+              class="text-sm text-muted-foreground mt-1 whitespace-pre-line"
+            >{{ description }}</p>
+          </div>
+          <button
+            type="button"
+            class="h-8 w-8 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"
+            aria-label="닫기"
+            @click="close('cancel')"
+          >
+            <X class="h-4 w-4" />
+          </button>
+        </div>
+
+        <div class="flex items-center justify-end gap-2 mt-5">
+          <button
+            type="button"
+            class="h-10 px-4 rounded-lg border border-input bg-background text-sm hover:bg-muted"
+            @click="close('cancel')"
+          >{{ cancelLabel }}</button>
+          <button
+            type="button"
+            class="h-10 px-4 rounded-lg text-sm font-semibold focus:outline-none focus:ring-4"
+            :class="tone === 'destructive'
+              ? 'bg-destructive text-destructive-foreground hover:bg-destructive/90 focus:ring-destructive/30'
+              : 'bg-primary text-primary-foreground hover:bg-primary/90 focus:ring-primary/30'"
+            @click="close('confirm')"
+          >{{ confirmLabel }}</button>
+        </div>
       </div>
-    </Transition>
+    </div>
   </Teleport>
 </template>

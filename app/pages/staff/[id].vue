@@ -74,20 +74,12 @@ const tone: Record<string, string> = {
 // =============================================================================
 // CRUD permissions
 // =============================================================================
-// HQ can edit anyone. 센터장 can edit staff in their own branch. Nobody can
-// edit themselves through this page (no privilege escalation; settings page
-// handles the user's own profile).
+// Staff CRUD is HQ-only. 센터장 / 간호사 / 요양보호사 hit this page in
+// read-only mode. The backend enforces the same restriction.
 const { me } = useAuth();
 const isHq = computed(() => me.value?.role === "hq" || me.value?.role === "super_admin");
 const isSelf = computed(() => me.value?.id === id);
-const canManage = computed(() => {
-  if (isSelf.value) return false;
-  if (isHq.value) return true;
-  if (me.value?.role === "branch_manager" && me.value.branch_id && p.value?.branch_id === me.value.branch_id) {
-    return true;
-  }
-  return false;
-});
+const canManage = computed(() => isHq.value && !isSelf.value);
 
 // =============================================================================
 // Edit mode
@@ -240,18 +232,13 @@ const deactivate = useApiMutation<void, Person>(
   },
 );
 
-const confirmRef = ref<InstanceType<typeof ConfirmDialog> | null>(null);
-async function onDeactivate() {
+const showDeactivateConfirm = ref(false);
+function onDeactivateClick() {
   if (!p.value) return;
-  const ok = await confirmRef.value?.open({
-    title: `${p.value.full_name} 직원 퇴직 처리`,
-    description:
-      "퇴직 처리하면 시스템 로그인이 즉시 차단되고 명단·근무표에서 제외됩니다.\n" +
-      "퇴직 기록은 보존되며, 필요시 데이터 복구는 별도 절차로 가능합니다.",
-    confirmLabel: "퇴직 처리",
-    tone: "destructive",
-  });
-  if (ok) await deactivate.run();
+  showDeactivateConfirm.value = true;
+}
+async function onConfirmDeactivate() {
+  await deactivate.run();
 }
 </script>
 
@@ -306,9 +293,9 @@ async function onDeactivate() {
           </button>
           <button
             type="button"
-            class="h-9 px-3 rounded-lg border border-destructive/40 bg-transparent text-destructive text-sm inline-flex items-center gap-1.5 hover:bg-destructive/10"
+            class="h-9 px-3 rounded-lg border border-destructive/40 bg-transparent text-destructive text-sm inline-flex items-center gap-1.5 hover:bg-destructive/10 disabled:opacity-50"
             :disabled="deactivate.pending.value"
-            @click="onDeactivate"
+            @click="onDeactivateClick"
           >
             <UserX class="h-3.5 w-3.5" />
             퇴직 처리
@@ -549,7 +536,14 @@ async function onDeactivate() {
       </form>
 
       <!-- Destructive confirm dialog (퇴직 처리) -->
-      <ConfirmDialog ref="confirmRef" />
+      <ConfirmDialog
+        v-model:open="showDeactivateConfirm"
+        :title="`${p.full_name} 직원 퇴직 처리`"
+        description="퇴직 처리하면 시스템 로그인이 즉시 차단되고 명단·근무표에서 제외됩니다.&#10;퇴직 기록은 보존되며, 필요시 데이터 복구는 별도 절차로 가능합니다."
+        confirm-label="퇴직 처리"
+        tone="destructive"
+        @confirm="onConfirmDeactivate"
+      />
     </template>
   </div>
 </template>
