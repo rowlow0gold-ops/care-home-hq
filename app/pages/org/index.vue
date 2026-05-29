@@ -125,9 +125,6 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
   <div class="px-8 py-6 max-w-7xl mx-auto">
     <header class="mb-6">
       <h1 class="text-3xl font-bold tracking-tight">조직도</h1>
-      <p class="text-sm text-muted-foreground mt-1">
-        본사 → 광역센터 → 위성센터 · 인원수 + 센터장만 표시 · 카드 클릭 → 지점 상세
-      </p>
     </header>
 
     <div v-if="pending" class="space-y-3">
