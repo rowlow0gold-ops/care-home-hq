@@ -1,5 +1,11 @@
 <script setup lang="ts">
-import { CheckCircle2, AlertCircle, Loader2, Download, Search } from "@lucide/vue";
+import { CheckCircle2, AlertCircle, Loader2, Download, Search, Building2 } from "@lucide/vue";
+
+// HQ can pivot across branches; 센터장 is locked to their own.
+const { me } = useAuth();
+const isHq = computed(
+  () => me.value?.role === "hq" || me.value?.role === "super_admin",
+);
 
 useHead({ title: "보고서 · 케어닥 HQ" });
 
@@ -174,13 +180,25 @@ const statusLabel: Record<BillingRun["status"], string> = {
           <option value="">전체 월</option>
           <option v-for="m in monthOptions" :key="m" :value="m">{{ parseInt(m, 10) }}월</option>
         </select>
+        <!-- HQ: branch dropdown · 센터장: locked badge of their own branch -->
         <select
+          v-if="isHq"
           v-model="filterBranch"
           class="h-9 w-48 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
         >
           <option value="">전체 지점</option>
           <option v-for="b in dashboard?.branches ?? []" :key="b.id" :value="b.id">{{ b.name }}</option>
         </select>
+        <div
+          v-else
+          class="inline-flex items-center gap-1.5 h-9 w-48 px-3 rounded-lg border bg-muted/30 text-sm"
+          title="본인 소속 지점 청구 이력만 조회할 수 있습니다"
+        >
+          <Building2 class="h-3.5 w-3.5 text-primary flex-shrink-0" />
+          <span class="font-medium truncate">
+            {{ dashboard?.branches?.find((b) => b.id === filterBranch)?.name ?? '내 지점' }}
+          </span>
+        </div>
         <select
           v-model="filterStatus"
           class="h-9 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
