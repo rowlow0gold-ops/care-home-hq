@@ -175,12 +175,6 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
           </div>
         </div>
         <div class="flex items-center gap-2 flex-wrap">
-          <NuxtLink :to="`/residents/${id}/new-vital`">
-            <Button>
-              <Plus class="h-4 w-4" />
-              활력 기록
-            </Button>
-          </NuxtLink>
           <template v-if="isHq && resident.status === 'active'">
             <button
               type="button"

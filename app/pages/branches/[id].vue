@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ArrowLeft, Building2, Users, UsersRound, MapPin, Phone, ImageIcon, Camera, Stethoscope, Heart, AlertTriangle, CheckCircle2, ChefHat } from "@lucide/vue";
+import { ArrowLeft, Building2, Users, UsersRound, MapPin, Phone, ImageIcon, Camera, Stethoscope, Heart, AlertTriangle, CheckCircle2, ChefHat, Search } from "@lucide/vue";
 
 const route = useRoute();
 const id = route.params.id as string;
@@ -65,10 +65,31 @@ const [{ data: dashboard }, { data: org }, { data: residents }] = await Promise.
 const branch = computed(() =>
   dashboard.value?.branches.find((b) => b.id === id) ?? null,
 );
-const staff = computed(() => (org.value ?? []).filter((p) => p.branch_id === id));
-const branchResidents = computed(() =>
+const staffAll = computed(() => (org.value ?? []).filter((p) => p.branch_id === id));
+const residentsAll = computed(() =>
   (residents.value ?? []).filter((r: any) => r.branch_id === id && r.status === "active"),
 );
+
+// Inline search filters — client-side, fast (each branch only has 100-200 rows)
+const staffQ = ref("");
+const residentQ = ref("");
+const staff = computed(() => {
+  const q = staffQ.value.trim().toLowerCase();
+  if (!q) return staffAll.value;
+  return staffAll.value.filter((p) =>
+    p.full_name.toLowerCase().includes(q)
+      || p.email.toLowerCase().includes(q)
+      || p.position_ko.includes(staffQ.value.trim()),
+  );
+});
+const branchResidents = computed(() => {
+  const q = residentQ.value.trim().toLowerCase();
+  if (!q) return residentsAll.value;
+  return residentsAll.value.filter((r: any) =>
+    r.full_name.toLowerCase().includes(q)
+      || (r.room_number ?? "").toLowerCase().includes(q),
+  );
+});
 
 useHead({ title: () => `${branch.value?.name ?? "지점"} · 케어닥 HQ` });
 
@@ -306,10 +327,21 @@ const empCounts = computed(() => {
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <!-- Staff -->
         <div class="rounded-xl border bg-card overflow-hidden">
-          <div class="px-5 py-3 border-b flex items-center gap-2">
+          <div class="px-5 py-3 border-b flex items-center gap-2 flex-wrap">
             <UsersRound class="h-4 w-4 text-primary" />
             <h2 class="font-semibold">직원</h2>
-            <span class="ml-auto text-xs text-muted-foreground">{{ staff.length }}명</span>
+            <span class="text-xs text-muted-foreground">
+              {{ staff.length }}<span v-if="staffQ"> / {{ staffAll.length }}</span>명
+            </span>
+            <div class="relative ml-auto">
+              <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                v-model="staffQ"
+                type="search"
+                placeholder="이름/직책 검색"
+                class="h-8 pl-8 pr-2 w-44 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+              >
+            </div>
           </div>
           <ul class="max-h-[460px] overflow-y-auto divide-y">
             <li
@@ -331,10 +363,21 @@ const empCounts = computed(() => {
 
         <!-- Residents -->
         <div class="rounded-xl border bg-card overflow-hidden">
-          <div class="px-5 py-3 border-b flex items-center gap-2">
+          <div class="px-5 py-3 border-b flex items-center gap-2 flex-wrap">
             <Users class="h-4 w-4 text-primary" />
             <h2 class="font-semibold">어르신</h2>
-            <span class="ml-auto text-xs text-muted-foreground">{{ branchResidents.length }}명</span>
+            <span class="text-xs text-muted-foreground">
+              {{ branchResidents.length }}<span v-if="residentQ"> / {{ residentsAll.length }}</span>명
+            </span>
+            <div class="relative ml-auto">
+              <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+              <input
+                v-model="residentQ"
+                type="search"
+                placeholder="이름/호실 검색"
+                class="h-8 pl-8 pr-2 w-44 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+              >
+            </div>
           </div>
           <ul class="max-h-[460px] overflow-y-auto divide-y">
             <li

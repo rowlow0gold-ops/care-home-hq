@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Search, MapPin, ChevronLeft, ChevronRight, ArrowUpDown, Loader2, Building2, Plus } from "@lucide/vue";
+import { Search, MapPin, ChevronLeft, ChevronRight, ArrowUpDown, Loader2, Building2, Upload, Download } from "@lucide/vue";
 
 // HQ sees all branches; everyone else is pinned to their own.
 const { me } = useAuth();
@@ -123,11 +123,41 @@ function age(birth: string) {
   return a;
 }
 
-// HQ-only: 어르신 등록 form toggle
-const showCreateForm = ref(false);
-async function onCreated() {
-  showCreateForm.value = false;
+// HQ-only: 어르신 엑셀 가져오기 (single-add 폼은 사용하지 않습니다 —
+// 케어홈 운영 흐름상 명단은 항상 엑셀 단위로 들어옵니다)
+const showImportDialog = ref(false);
+async function onImported() {
   await refresh();
+}
+
+// 내보내기 — 현재 활성 어르신 명단을 XLSX로 다운로드 (Nuxt proxy → care-home-server)
+const exportingXlsx = ref(false);
+const toast = useToast();
+async function onExportXlsx() {
+  if (exportingXlsx.value) return;
+  exportingXlsx.value = true;
+  try {
+    const res = await fetch("/api/v1/residents/export.xlsx", { credentials: "include" });
+    if (!res.ok) throw new Error(`다운로드 실패 (${res.status})`);
+    const blob = await res.blob();
+    const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+    const fallback = `어르신_명단_${stamp}.xlsx`;
+    const cd = res.headers.get("Content-Disposition") ?? "";
+    const m  = /filename\*=UTF-8''([^;]+)/i.exec(cd) ?? /filename="([^"]+)"/i.exec(cd);
+    const filename = m ? decodeURIComponent(m[1]) : fallback;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  } catch (e: any) {
+    toast.error(e?.message ?? "다운로드 실패", "내보내기 실패");
+  } finally {
+    exportingXlsx.value = false;
+  }
 }
 </script>
 
@@ -194,30 +224,39 @@ async function onCreated() {
           <Loader2 v-if="pending" class="h-4 w-4 animate-spin" />
           <Search v-else class="h-4 w-4" />
         </button>
-        <div class="ml-auto flex items-center gap-3">
-          <span class="text-xs text-muted-foreground tabular-nums">
+        <div class="ml-auto flex items-center gap-2">
+          <span class="text-xs text-muted-foreground tabular-nums mr-2">
             {{ showingFrom }}–{{ showingTo }} / {{ paged?.total ?? 0 }}명
           </span>
-          <!-- HQ-only: register a new resident -->
+          <!-- HQ-only: 엑셀 내보내기 / 가져오기 (single-add form는 의도적으로 제거) -->
+          <button
+            type="button"
+            class="h-10 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-60"
+            :disabled="exportingXlsx"
+            @click="onExportXlsx"
+          >
+            <Loader2 v-if="exportingXlsx" class="h-4 w-4 animate-spin" />
+            <Download v-else class="h-4 w-4" />
+            내보내기
+          </button>
           <button
             v-if="isHq"
             type="button"
             class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30"
-            @click="showCreateForm = true"
+            @click="showImportDialog = true"
           >
-            <Plus class="h-4 w-4" />
-            어르신 추가
+            <Upload class="h-4 w-4" />
+            가져오기
           </button>
         </div>
       </div>
 
-      <!-- HQ-only: create form, shown above the table when toggled -->
-      <ResidentForm
-        v-if="showCreateForm && isHq"
-        mode="create"
-        class="m-4"
-        @saved="onCreated"
-        @cancel="showCreateForm = false"
+      <!-- HQ-only: bulk import dialog -->
+      <ResidentImportDialog
+        v-if="isHq"
+        v-model:open="showImportDialog"
+        :branch-id="appliedBranch || null"
+        @imported="onImported"
       />
 
       <div v-if="pending && !paged" class="py-12 text-center text-sm text-muted-foreground">
