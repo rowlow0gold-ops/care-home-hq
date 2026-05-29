@@ -84,7 +84,10 @@ function fmtKRW(n: number | null) {
 const downloadingId = ref<string | null>(null);
 const downloadError = ref<string | null>(null);
 async function downloadXlsx(run: BillingRun) {
-  if (!run.has_xlsx || downloadingId.value) return;
+  // Backend builds XLSX on-demand from residents + run metadata, so we
+  // don't gate on the legacy `has_xlsx` cache flag — just guard against
+  // double-clicks while a download is in flight.
+  if (downloadingId.value) return;
   downloadingId.value = run.id;
   downloadError.value = null;
   try {
