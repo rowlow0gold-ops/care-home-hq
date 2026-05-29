@@ -238,10 +238,7 @@ async function onExportXlsx() {
         </div>
       </div>
 
-      <div v-if="pending && !paged" class="py-12 text-center text-sm text-muted-foreground">
-        불러오는 중…
-      </div>
-      <div v-else-if="error" class="py-12 text-center text-sm text-destructive">
+      <div v-if="error" class="py-12 text-center text-sm text-destructive">
         목록을 불러오지 못했습니다.
         <button class="underline ml-2" @click="refresh()">다시 시도</button>
       </div>
@@ -268,35 +265,50 @@ async function onExportXlsx() {
           </tr>
         </thead>
         <tbody>
-          <tr
-            v-for="r in paged?.items ?? []"
-            :key="r.id"
-            class="border-t hover:bg-muted/40 cursor-pointer transition-colors"
-            @click="navigateTo(`/residents/${r.id}`)"
-          >
-            <td class="py-3 px-6 font-medium">{{ r.full_name }}</td>
-            <td class="py-3 px-3">
-              <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <MapPin class="h-3 w-3" />
-                {{ branchById.get(r.branch_id) ?? "—" }}
-              </div>
-            </td>
-            <td class="py-3 px-3 text-muted-foreground tabular-nums">{{ r.room_number ?? "—" }}</td>
-            <td class="py-3 px-3">{{ sexLabel[r.sex] }}</td>
-            <td class="py-3 px-3 text-right tabular-nums">{{ age(r.birth_date) }}세</td>
-            <td class="py-3 px-3 text-right">{{ gradeLabel(r.care_grade) }}</td>
-            <td class="py-3 px-3 text-muted-foreground text-xs tabular-nums">{{ r.admitted_on }}</td>
-            <td class="py-3 px-6">
-              <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium" :class="statusTone[r.status]">
-                {{ statusLabel[r.status] }}
-              </span>
-            </td>
-          </tr>
-          <tr v-if="(paged?.items ?? []).length === 0">
-            <td colspan="8" class="py-12 text-center text-muted-foreground">
-              조건에 맞는 결과가 없습니다.
-            </td>
-          </tr>
+          <!-- Skeleton rows on initial load (no data yet) -->
+          <template v-if="pending && !paged">
+            <tr v-for="i in 8" :key="`sk-${i}`" class="border-t">
+              <td class="py-3 px-6"><Skeleton w="6rem" /></td>
+              <td class="py-3 px-3"><Skeleton w="5rem" /></td>
+              <td class="py-3 px-3"><Skeleton w="3rem" /></td>
+              <td class="py-3 px-3"><Skeleton w="1.5rem" /></td>
+              <td class="py-3 px-3 text-right"><Skeleton w="2rem" class="ml-auto" /></td>
+              <td class="py-3 px-3 text-right"><Skeleton w="3rem" class="ml-auto" /></td>
+              <td class="py-3 px-3"><Skeleton w="5rem" /></td>
+              <td class="py-3 px-6"><Skeleton w="3rem" /></td>
+            </tr>
+          </template>
+          <template v-else>
+            <tr
+              v-for="r in paged?.items ?? []"
+              :key="r.id"
+              class="border-t hover:bg-muted/40 cursor-pointer transition-colors"
+              @click="navigateTo(`/residents/${r.id}`)"
+            >
+              <td class="py-3 px-6 font-medium">{{ r.full_name }}</td>
+              <td class="py-3 px-3">
+                <div class="flex items-center gap-1.5 text-xs text-muted-foreground">
+                  <MapPin class="h-3 w-3" />
+                  {{ branchById.get(r.branch_id) ?? "—" }}
+                </div>
+              </td>
+              <td class="py-3 px-3 text-muted-foreground tabular-nums">{{ r.room_number ?? "—" }}</td>
+              <td class="py-3 px-3">{{ sexLabel[r.sex] }}</td>
+              <td class="py-3 px-3 text-right tabular-nums">{{ age(r.birth_date) }}세</td>
+              <td class="py-3 px-3 text-right">{{ gradeLabel(r.care_grade) }}</td>
+              <td class="py-3 px-3 text-muted-foreground text-xs tabular-nums">{{ r.admitted_on }}</td>
+              <td class="py-3 px-6">
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium" :class="statusTone[r.status]">
+                  {{ statusLabel[r.status] }}
+                </span>
+              </td>
+            </tr>
+            <tr v-if="(paged?.items ?? []).length === 0">
+              <td colspan="8" class="py-12 text-center text-muted-foreground">
+                조건에 맞는 결과가 없습니다.
+              </td>
+            </tr>
+          </template>
         </tbody>
       </table>
 

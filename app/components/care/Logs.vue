@@ -200,9 +200,21 @@ async function onExportXlsx() {
         </div>
       </div>
 
-      <div v-if="pending && !paged" class="py-12 text-center text-sm text-muted-foreground">
-        불러오는 중…
-      </div>
+      <!-- Skeleton list while first fetch is in flight -->
+      <ul v-if="pending && !paged" class="divide-y">
+        <li v-for="i in 8" :key="`sk-${i}`" class="px-6 py-3 flex items-start gap-3">
+          <Skeleton w="1rem" h="1rem" class="mt-1 rounded-full" />
+          <div class="flex-1 space-y-1.5">
+            <div class="flex items-center gap-2">
+              <Skeleton w="5rem" />
+              <Skeleton w="3rem" />
+              <Skeleton w="2rem" />
+              <Skeleton w="4rem" />
+            </div>
+            <Skeleton w="80%" />
+          </div>
+        </li>
+      </ul>
       <div v-else-if="error" class="py-12 text-center text-sm text-destructive">
         목록을 불러오지 못했습니다.
         <button class="underline ml-2" @click="refresh()">다시 시도</button>

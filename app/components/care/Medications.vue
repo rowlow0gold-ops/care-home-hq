@@ -209,15 +209,12 @@ function fmtDate(s: string | null) {
     </div>
 
     <div class="rounded-xl border bg-card overflow-hidden">
-      <div v-if="pending && !paged" class="py-12 text-center text-sm text-muted-foreground">
-        불러오는 중…
-      </div>
-      <div v-else-if="error" class="py-12 text-center text-sm text-destructive">
+      <div v-if="error" class="py-12 text-center text-sm text-destructive">
         <AlertCircle class="h-8 w-8 mx-auto mb-2" />
         목록을 불러오지 못했습니다.
         <button class="underline ml-2" @click="refresh()">다시 시도</button>
       </div>
-      <div v-else-if="(paged?.items?.length ?? 0) === 0" class="py-12 text-center text-sm text-muted-foreground">
+      <div v-else-if="!pending && (paged?.items?.length ?? 0) === 0" class="py-12 text-center text-sm text-muted-foreground">
         <Pill class="h-10 w-10 mx-auto mb-3 opacity-30" />
         조건에 맞는 처방이 없습니다.
       </div>
@@ -235,7 +232,23 @@ function fmtDate(s: string | null) {
             <th class="py-3 px-6 font-medium">상태</th>
           </tr>
         </thead>
-        <tbody>
+        <tbody v-if="pending && !paged">
+          <!-- Skeleton rows during initial load -->
+          <tr v-for="i in 8" :key="`sk-${i}`" class="border-t">
+            <td class="py-3 px-6">
+              <Skeleton w="5rem" />
+              <Skeleton w="7rem" class="mt-1" h="0.7rem" />
+            </td>
+            <td class="py-3 px-3"><Skeleton w="6rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="3rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="4rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="3rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="4rem" /></td>
+            <td class="py-3 px-3"><Skeleton w="5rem" /></td>
+            <td class="py-3 px-6"><Skeleton w="3.5rem" /></td>
+          </tr>
+        </tbody>
+        <tbody v-else>
           <tr
             v-for="m in paged?.items ?? []"
             :key="m.id"
