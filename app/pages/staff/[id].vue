@@ -92,33 +92,21 @@ interface EditForm {
   email: string;
   phone: string;
   position: string;
-  employment_type: string;
-  hired_on: string;
-  contract_end_on: string;
-  monthly_salary_krw: number | null;
 }
 const form = reactive<EditForm>({
   full_name: "",
   email: "",
   phone: "",
   position: "",
-  employment_type: "",
-  hired_on: "",
-  contract_end_on: "",
-  monthly_salary_krw: null,
 });
 const fieldErrors = reactive<Record<string, string | null>>({});
 
 function fillFormFromPerson() {
   if (!p.value) return;
-  form.full_name          = p.value.full_name;
-  form.email              = p.value.email;
-  form.phone              = p.value.phone ?? "";
-  form.position           = p.value.position;
-  form.employment_type    = p.value.employment_type;
-  form.hired_on           = p.value.hired_on ?? "";
-  form.contract_end_on    = p.value.contract_end_on ?? "";
-  form.monthly_salary_krw = p.value.monthly_salary_krw;
+  form.full_name = p.value.full_name;
+  form.email     = p.value.email;
+  form.phone     = p.value.phone ?? "";
+  form.position  = p.value.position;
   for (const k of Object.keys(fieldErrors)) delete fieldErrors[k];
 }
 
@@ -142,11 +130,6 @@ const positionOptions: { value: string; label: string }[] = [
   { value: "it",               label: "IT/마케팅" },
   { value: "administrative",   label: "행정직" },
 ];
-const employmentOptions: { value: string; label: string }[] = [
-  { value: "regular",    label: "정규직" },
-  { value: "contract",   label: "계약직" },
-  { value: "consultant", label: "위촉직" },
-];
 
 // Mutations
 const update = useApiMutation<Record<string, unknown>, Person>(
@@ -163,20 +146,12 @@ const update = useApiMutation<Record<string, unknown>, Person>(
 function diffPayload(): Record<string, unknown> {
   if (!p.value) return {};
   const out: Record<string, unknown> = { expected_updated_at: p.value.updated_at };
-  if (form.full_name !== p.value.full_name)             out.full_name = form.full_name.trim();
-  if (form.email !== p.value.email)                     out.email = form.email.trim();
-  const phoneNorm  = form.phone.trim() || null;
-  const phoneOld   = p.value.phone ?? null;
-  if (phoneNorm !== phoneOld)                           out.phone = phoneNorm ?? "";
-  if (form.position !== p.value.position)               out.position = form.position;
-  if (form.employment_type !== p.value.employment_type) out.employment_type = form.employment_type;
-  if ((form.hired_on || null) !== p.value.hired_on)     out.hired_on = form.hired_on || null;
-  if ((form.contract_end_on || null) !== p.value.contract_end_on) {
-    out.contract_end_on = form.contract_end_on || null;
-  }
-  if (form.monthly_salary_krw !== p.value.monthly_salary_krw) {
-    out.monthly_salary_krw = form.monthly_salary_krw;
-  }
+  if (form.full_name !== p.value.full_name) out.full_name = form.full_name.trim();
+  if (form.email !== p.value.email)         out.email = form.email.trim();
+  const phoneNorm = form.phone.trim() || null;
+  const phoneOld  = p.value.phone ?? null;
+  if (phoneNorm !== phoneOld)               out.phone = phoneNorm ?? "";
+  if (form.position !== p.value.position)   out.position = form.position;
   return out;
 }
 
@@ -192,11 +167,12 @@ async function onSave() {
   await update.run(payload);
 }
 
-// 퇴직 처리
+// 목록에서 제거 — HQ entries are directory labels, not employment records.
+// Backend uses deactivated_at column; UX-wise it's a "remove from 조직도".
 const deactivate = useApiMutation<void, Person>(
   () => api.patch<Person>(`/v1/staff/${id}/deactivate`, {}),
   {
-    successMessage: "본사 직원 퇴직 처리가 완료되었습니다",
+    successMessage: "조직도에서 제거되었습니다",
     onSuccess: async () => { await router.push("/staff"); },
   },
 );
@@ -271,7 +247,7 @@ async function onConfirmDeactivate() {
             @click="onDeactivateClick"
           >
             <UserX class="h-3.5 w-3.5" />
-            퇴직 처리
+            목록에서 제거
           </button>
         </div>
       </header>
@@ -327,7 +303,10 @@ async function onConfirmDeactivate() {
           </div>
         </div>
 
-        <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <!-- 본사 (HQ) entries: salary / 연차 cards intentionally hidden.
+             HQ records are 조직도 directory labels, not HR employee
+             records. Center staff payroll/leave lives in the Tauri app. -->
+        <div v-if="!isHqTarget" class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div class="rounded-xl border bg-card p-5">
             <h2 class="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-3 flex items-center gap-2">
               <Wallet class="h-3.5 w-3.5 text-primary" />
@@ -426,7 +405,7 @@ async function onConfirmDeactivate() {
             >
           </FieldRow>
 
-          <FieldRow label="직책">
+          <FieldRow label="직책" class="sm:col-span-2">
             <select
               v-model="form.position"
               class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
@@ -434,42 +413,12 @@ async function onConfirmDeactivate() {
               <option v-for="o in positionOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
             </select>
           </FieldRow>
-
-          <FieldRow label="고용 형태">
-            <select
-              v-model="form.employment_type"
-              class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-            >
-              <option v-for="o in employmentOptions" :key="o.value" :value="o.value">{{ o.label }}</option>
-            </select>
-          </FieldRow>
-
-          <FieldRow label="월 기본급 (KRW)">
-            <input
-              v-model.number="form.monthly_salary_krw"
-              type="number"
-              min="0"
-              step="100000"
-              class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm tabular-nums focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-            >
-          </FieldRow>
-
-          <FieldRow label="입사일">
-            <input
-              v-model="form.hired_on"
-              type="date"
-              class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 [color-scheme:light] dark:[color-scheme:dark]"
-            >
-          </FieldRow>
-
-          <FieldRow label="계약 만료일" hint="정규직은 비워두세요">
-            <input
-              v-model="form.contract_end_on"
-              type="date"
-              class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 [color-scheme:light] dark:[color-scheme:dark]"
-            >
-          </FieldRow>
         </div>
+
+        <p class="text-[11px] text-muted-foreground leading-relaxed">
+          본사 (HQ) entry는 조직도 표시용 디렉터리 라벨입니다. 급여 · 입사일 ·
+          연차 같은 HR 정보는 데스크톱 (Tauri) 앱에서 별도 관리합니다.
+        </p>
 
         <div class="flex items-center justify-end gap-2 pt-3 border-t">
           <button
@@ -492,12 +441,12 @@ async function onConfirmDeactivate() {
         </div>
       </form>
 
-      <!-- 퇴직 처리 확인 dialog (HQ-on-HQ only) -->
+      <!-- 목록에서 제거 확인 dialog (HQ-on-HQ only) -->
       <ConfirmDialog
         v-model:open="showDeactivateConfirm"
-        :title="`${p.full_name} 본사 직원 퇴직 처리`"
-        description="퇴직 처리하면 시스템 로그인이 즉시 차단됩니다.&#10;기록은 보존되며, 필요시 데이터 복구는 별도 절차로 가능합니다."
-        confirm-label="퇴직 처리"
+        :title="`${p.full_name} · 조직도에서 제거`"
+        description="조직도와 직원 목록에서 사라집니다.&#10;실제 퇴직 처리가 아니라 디렉터리에서 숨기는 작업이며, 기록은 데이터베이스에 보존됩니다."
+        confirm-label="제거"
         tone="destructive"
         @confirm="onConfirmDeactivate"
       />

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   Crown, Briefcase, Building2, Stethoscope, HeartPulse, Hammer,
-  ChevronRight, Users, Layers,
+  ChevronRight, Users, Layers, Plus,
 } from "@lucide/vue";
 
 useHead({ title: "조직도 · 케어닥 HQ" });
@@ -37,16 +37,23 @@ interface BranchInfo {
 
 const api = useApi();
 const router = useRouter();
+const { me } = useAuth();
+const isHq = computed(() => me.value?.role === "hq" || me.value?.role === "super_admin");
 
 // =============================================================================
 // Single round-trip: per-branch counts + leadership names.
 // Replaces the previous "fetch all 3,200 staff" pattern.
 // =============================================================================
-const [{ data: summaries, pending: summariesPending }, { data: dashboard, pending: branchesPending }] =
+const [{ data: summaries, pending: summariesPending, refresh: refreshSummaries }, { data: dashboard, pending: branchesPending }] =
   await Promise.all([
     useAsyncData("org-branch-summary", () => api.get<BranchSummary[]>("/v1/org/branch-summary")),
     useAsyncData("org-branches", () => api.get<{ branches: BranchInfo[] }>("/v1/dashboard/summary")),
   ]);
+
+// HQ-add dialog state — only HQ users see the trigger.
+const showHqAdd = ref(false);
+function openHqAdd() { showHqAdd.value = true; }
+async function onHqCreated() { await refreshSummaries(); }
 const pending = computed(() => summariesPending.value || branchesPending.value);
 
 const summaryByBranch = computed(() => {
@@ -136,12 +143,21 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
           <div class="h-10 w-10 rounded-lg bg-primary text-primary-foreground flex items-center justify-center">
             <Crown class="h-5 w-5" />
           </div>
-          <div>
+          <div class="flex-1">
             <div class="text-base font-bold">본사 (HQ)</div>
             <div class="text-xs text-muted-foreground">
               {{ hqSummary?.total ?? 0 }}명 · 케어닥 전사 운영
             </div>
           </div>
+          <button
+            v-if="isHq"
+            type="button"
+            class="h-8 px-2.5 rounded-md border border-primary/30 bg-card text-primary text-xs font-medium inline-flex items-center gap-1 hover:bg-primary/10 transition-colors"
+            @click="openHqAdd"
+          >
+            <Plus class="h-3.5 w-3.5" />
+            본사 직원 추가
+          </button>
         </div>
         <div class="flex flex-wrap gap-1.5">
           <button
@@ -294,6 +310,9 @@ function openPerson(p: OrgPerson, e: MouseEvent) {
           </div>
         </div>
       </div>
+
+      <!-- 본사 직원 추가 dialog (HQ-only) -->
+      <HqAddDialog v-model:open="showHqAdd" @created="onHqCreated" />
 
       <!-- HOVER POPOVER -->
       <Teleport to="body">
