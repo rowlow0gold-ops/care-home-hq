@@ -87,9 +87,21 @@ async function sendEvent() {
       스케쥴러
     </NuxtLink>
 
-    <div v-if="error" class="text-sm text-destructive py-12 text-center">
-      <AlertCircle class="h-8 w-8 mx-auto mb-2" />
-      불러오기에 실패했습니다.
+    <div
+      v-if="error || (!pending && !meta)"
+      class="rounded-2xl border bg-card p-16 text-center"
+    >
+      <AlertCircle class="h-10 w-10 mx-auto mb-3 text-muted-foreground" />
+      <p class="text-sm text-muted-foreground mb-3">
+        이 이벤트를 찾을 수 없습니다 (또는 취소·삭제되었을 수 있습니다).
+      </p>
+      <NuxtLink
+        to="/family-notify"
+        class="text-sm text-primary hover:underline inline-flex items-center gap-1"
+      >
+        <ArrowLeft class="h-3.5 w-3.5" />
+        스케쥴러로 돌아가기
+      </NuxtLink>
     </div>
 
     <template v-else-if="meta">
