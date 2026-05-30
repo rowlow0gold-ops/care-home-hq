@@ -95,16 +95,17 @@ async function togglePick(photo: PhotoCandidate) {
   }
 }
 
-// 자동 선택 3장 — picks 3 random for this resident, server-side.
+// 자동 선택 — count is HQ-configurable (1–8, matches the per-month cap).
+const autoCount   = ref(3);
 const autoPicking = ref(false);
-async function autoPick3() {
+async function autoPickThis() {
   if (autoPicking.value) return;
   autoPicking.value = true;
   try {
-    await api.post("/v1/photos/auto-pick", {
-      month, resident_id: residentId, count: 3,
+    const r = await api.post<{ picked: number }>("/v1/photos/auto-pick", {
+      month, resident_id: residentId, count: autoCount.value,
     });
-    toast.success("3장 자동 선택 완료");
+    toast.success(`${r.picked}장 자동 선택 완료`);
     await refresh();
   } catch (e: any) {
     toast.error(e?.data?.message ?? "자동 선택 실패", "오류");
@@ -162,7 +163,14 @@ function fmtTakenDate(iso: string) {
           {{ picker.resident_name.charAt(0) }}
         </div>
         <div class="min-w-0 flex-1">
-          <h1 class="text-2xl font-bold tracking-tight">{{ picker.resident_name }}</h1>
+          <NuxtLink
+            :to="`/residents/${picker.resident_id}`"
+            class="inline-flex items-baseline gap-2 text-2xl font-bold tracking-tight hover:text-primary underline-offset-4 hover:underline"
+            title="어르신 상세 페이지"
+          >
+            {{ picker.resident_name }}
+            <span class="text-sm font-normal opacity-70">→ 케어 관리</span>
+          </NuxtLink>
           <div class="flex items-center gap-2 mt-1 text-sm text-muted-foreground flex-wrap">
             <Building2 class="h-3.5 w-3.5" />
             <NuxtLink :to="`/branches/${picker.branch_id}`" class="hover:text-primary underline-offset-4 hover:underline">
@@ -185,17 +193,26 @@ function fmtTakenDate(iso: string) {
             <CheckCircle2 v-if="pickedCount >= MIN_PICK" class="h-3.5 w-3.5" />
             예약 {{ pickedCount }}장 / 최소 {{ MIN_PICK }}장
           </span>
-          <button
-            type="button"
-            class="h-10 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
-            :disabled="autoPicking"
-            title="이달 후보 중 3장을 무작위로 자동 예약"
-            @click="autoPick3"
-          >
-            <Loader2 v-if="autoPicking" class="h-4 w-4 animate-spin" />
-            <Wand2 v-else class="h-4 w-4" />
-            자동 선택 3장
-          </button>
+          <div class="inline-flex items-center rounded-lg border border-input bg-background overflow-hidden">
+            <select
+              v-model.number="autoCount"
+              class="h-10 px-2 text-sm bg-transparent border-r border-input focus:outline-none focus:bg-muted/40"
+              title="자동 선택 장수"
+            >
+              <option v-for="n in 8" :key="n" :value="n">{{ n }}장</option>
+            </select>
+            <button
+              type="button"
+              class="h-10 px-3 text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
+              :disabled="autoPicking"
+              title="이달 후보 중 무작위 자동 예약"
+              @click="autoPickThis"
+            >
+              <Loader2 v-if="autoPicking" class="h-4 w-4 animate-spin" />
+              <Wand2 v-else class="h-4 w-4" />
+              자동 선택
+            </button>
+          </div>
           <button
             type="button"
             class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"

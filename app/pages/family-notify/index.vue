@@ -10,8 +10,8 @@
  * matching the active filter.
  */
 import {
-  Send, Camera, Building2, Loader2, Search, Calendar,
-  ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Wand2,
+  Send, Camera, Building2, Loader2, Search, Calendar, X,
+  ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Wand2, Eye,
 } from "@lucide/vue";
 
 useHead({ title: "가족 알림 · 케어닥 HQ" });
@@ -113,7 +113,9 @@ if (process.client) {
   });
 }
 
-// 자동 선택 — reserve 3 random photos per resident across the filter
+// 자동 선택 — reserve N random photos per resident across the filter.
+// Count is user-configurable (1–8 — matches the per-month cap).
+const autoCount   = ref(3);
 const autoPicking = ref(false);
 async function autoPickAll() {
   if (autoPicking.value) return;
@@ -122,7 +124,7 @@ async function autoPickAll() {
     const r = await api.post<{ picked: number }>("/v1/photos/auto-pick", {
       month:     appliedMonthStr.value,
       branch_id: appliedBranch.value || undefined,
-      count:     3,
+      count:     autoCount.value,
     });
     toast.success(`${r.picked}장 자동 예약 완료`);
     await refresh();
@@ -131,6 +133,39 @@ async function autoPickAll() {
   } finally {
     autoPicking.value = false;
   }
+}
+
+// 체크 — modal showing every picked photo for the active filter.
+interface PickedPhoto {
+  id:            string;
+  resident_id:   string;
+  resident_name: string;
+  branch_name:   string;
+  taken_at:      string;
+  caption:       string | null;
+  data_url:      string;
+}
+const checkOpen   = ref(false);
+const checkLoading = ref(false);
+const checkPhotos = ref<PickedPhoto[]>([]);
+async function openCheck() {
+  checkOpen.value = true;
+  checkLoading.value = true;
+  try {
+    checkPhotos.value = await api.get<PickedPhoto[]>("/v1/photos/picked-list", {
+      month:     appliedMonthStr.value,
+      branch_id: appliedBranch.value || undefined,
+    });
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "불러오기 실패", "오류");
+    checkOpen.value = false;
+  } finally {
+    checkLoading.value = false;
+  }
+}
+function gotoFromCheck(rid: string) {
+  checkOpen.value = false;
+  router.push(`/family-notify/${rid}?month=${appliedMonthStr.value}`);
 }
 
 // 발송 all — fire every picked photo across the whole filtered set
@@ -248,17 +283,40 @@ const pickedTone = (n: number) =>
           <span class="text-xs text-muted-foreground tabular-nums">
             {{ showingFrom }}–{{ showingTo }} / 총 {{ paged?.total ?? 0 }}명
           </span>
+
+          <!-- Auto-pick: count select + button (split per request). -->
+          <div class="inline-flex items-center rounded-lg border border-input bg-background overflow-hidden">
+            <select
+              v-model.number="autoCount"
+              class="h-10 px-2 text-sm bg-transparent border-r border-input focus:outline-none focus:bg-muted/40"
+              title="자동 선택 장수"
+            >
+              <option v-for="n in 8" :key="n" :value="n">{{ n }}장</option>
+            </select>
+            <button
+              type="button"
+              class="h-10 px-3 text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
+              :disabled="autoPicking"
+              title="이달 후보 중 무작위 자동 예약"
+              @click="autoPickAll"
+            >
+              <Loader2 v-if="autoPicking" class="h-4 w-4 animate-spin" />
+              <Wand2 v-else class="h-4 w-4" />
+              자동 선택
+            </button>
+          </div>
+
+          <!-- 체크 — preview every photo currently picked. -->
           <button
             type="button"
             class="h-10 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
-            :disabled="autoPicking"
-            title="전 어르신 대상으로 이달 후보 중 3장 무작위 자동 예약"
-            @click="autoPickAll"
+            :disabled="(paged?.total_picked ?? 0) === 0"
+            @click="openCheck"
           >
-            <Loader2 v-if="autoPicking" class="h-4 w-4 animate-spin" />
-            <Wand2 v-else class="h-4 w-4" />
-            자동 선택 3장
+            <Eye class="h-4 w-4" />
+            체크 ({{ paged?.total_picked ?? 0 }})
           </button>
+
           <button
             type="button"
             class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"
@@ -347,6 +405,60 @@ const pickedTone = (n: number) =>
           </tr>
         </tbody>
       </table>
+
+      <!-- 체크 modal: every picked photo across the active filter. Click a
+           photo → navigate to that resident's detail page. -->
+      <Teleport to="body">
+        <div
+          v-if="checkOpen"
+          class="fixed inset-0 z-[110] bg-foreground/40 backdrop-blur-sm flex items-center justify-center p-4"
+          @click.self="checkOpen = false"
+        >
+          <div class="bg-card text-foreground rounded-xl shadow-2xl border w-full max-w-5xl max-h-[85vh] flex flex-col">
+            <div class="px-5 py-4 border-b flex items-center gap-3">
+              <Eye class="h-5 w-5 text-primary" />
+              <div>
+                <h2 class="text-base font-semibold">선택된 사진 미리보기</h2>
+                <p class="text-xs text-muted-foreground">
+                  {{ appliedMonthStr }} 발송 예약 · 총 {{ checkPhotos.length }}장 · 사진 클릭 → 어르신별 상세
+                </p>
+              </div>
+              <button
+                type="button"
+                class="ml-auto h-8 w-8 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"
+                aria-label="닫기"
+                @click="checkOpen = false"
+              >
+                <X class="h-4 w-4" />
+              </button>
+            </div>
+
+            <div class="flex-1 overflow-y-auto p-5">
+              <div v-if="checkLoading" class="grid grid-cols-3 sm:grid-cols-5 gap-3">
+                <Skeleton v-for="i in 10" :key="i" h="8rem" />
+              </div>
+              <div v-else-if="checkPhotos.length === 0" class="py-12 text-center text-sm text-muted-foreground">
+                선택된 사진이 없습니다.
+              </div>
+              <div v-else class="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3">
+                <button
+                  v-for="p in checkPhotos"
+                  :key="p.id"
+                  type="button"
+                  class="group relative rounded-lg overflow-hidden border bg-muted aspect-[4/3] focus:outline-none focus:ring-4 focus:ring-primary/30 hover:border-primary transition-all"
+                  @click="gotoFromCheck(p.resident_id)"
+                >
+                  <img :src="p.data_url" alt="" class="w-full h-full object-cover" loading="lazy" />
+                  <div class="absolute inset-x-0 bottom-0 bg-gradient-to-t from-foreground/80 to-transparent text-background p-2">
+                    <div class="text-[11px] font-semibold truncate">{{ p.resident_name }}</div>
+                    <div class="text-[9px] opacity-80 truncate">{{ p.branch_name }}</div>
+                  </div>
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Teleport>
 
       <!-- Pagination -->
       <div
