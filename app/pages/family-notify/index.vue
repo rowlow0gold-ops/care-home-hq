@@ -18,20 +18,14 @@ useHead({ title: "가족 알림 · 케어닥 HQ" });
 interface FamilyEvent {
   id:             string;
   name:           string;
+  kind:           "regular" | "custom";
+  year_month:     string | null;
   scheduled_date: string;
   status:         "scheduled" | "sent" | "cancelled";
   created_at:     string;
   sent_at:        string | null;
   photo_count:    number;
   picked_count:   number;
-}
-interface MonthSummary {
-  // Synthesized; not from server.
-  month_str:      string;    // "2026-06"
-  scheduled_date: string;    // "2026-06-01"
-  display_name:   string;    // "2026년 6월 정기"
-  total_picked:   number;    // from /v1/photos/picker/paged
-  total_residents:number;    // from /v1/photos/picker/paged
 }
 
 const api    = useApi();
@@ -42,109 +36,44 @@ const toast  = useToast();
 type Kind = "all" | "regular" | "custom";
 const kindFilter = ref<Kind>("all");
 
-// ─── Custom events ─────────────────────────────────────────────────────────
+// ─── All batches (정기 + 비정기) come from family_send_events ───────────────
 const { data: events, refresh: refreshEvents } = await useAsyncData(
   "scheduler-events",
   () => api.get<FamilyEvent[]>("/v1/events"),
 );
+onActivated(refreshEvents);
 
-// ─── Regular (monthly) batches — auto-synthesized for current + 5 next ─────
-const now = new Date();
-const monthAnchors = computed<Date[]>(() => {
-  const out: Date[] = [];
-  for (let i = 0; i < 6; i++) {
-    out.push(new Date(now.getFullYear(), now.getMonth() + i, 1));
-  }
-  return out;
-});
-function fmtMonth(d: Date) {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
-}
-function fmtMonthKo(d: Date) {
-  return `${d.getFullYear()}년 ${d.getMonth() + 1}월 정기`;
-}
-
-// Pull picked counts for all monthly batches in parallel.
-const monthBatches = ref<MonthSummary[]>([]);
-const loadingBatches = ref(true);
-async function loadMonthBatches() {
-  loadingBatches.value = true;
-  try {
-    const results = await Promise.all(
-      monthAnchors.value.map(async (d) => {
-        const m = fmtMonth(d);
-        const r = await api.get<{ total: number; total_picked: number }>(
-          "/v1/photos/picker/paged",
-          { month: m, page: 1, page_size: 1 },
-        );
-        return {
-          month_str:       m,
-          scheduled_date:  `${m}-01`,
-          display_name:    fmtMonthKo(d),
-          total_picked:    r.total_picked ?? 0,
-          total_residents: r.total ?? 0,
-        };
-      }),
-    );
-    monthBatches.value = results;
-  } finally {
-    loadingBatches.value = false;
-  }
-}
-await loadMonthBatches();
-onActivated(loadMonthBatches);
-
-// ─── Unified rows for the table ────────────────────────────────────────────
 interface ScheduleRow {
   kind:           Kind;
   id:             string;
   name:           string;
   scheduled_date: string;
-  status:         "scheduled" | "sent" | "cancelled" | "ongoing";
+  status:         "scheduled" | "sent" | "cancelled";
   photo_count:    number;
   picked_count:   number;
-  goto:           string;      // route
+  goto:           string;
   sendable:       boolean;
   send_endpoint:  () => Promise<{ queued: number }>;
 }
 
-const allRows = computed<ScheduleRow[]>(() => {
-  const rows: ScheduleRow[] = [];
-
-  // 정기 — synthesized
-  for (const b of monthBatches.value) {
-    rows.push({
-      kind:           "regular",
-      id:             `month-${b.month_str}`,
-      name:           b.display_name,
-      scheduled_date: b.scheduled_date,
-      status:         "ongoing",         // monthly batches are always open
-      photo_count:    b.total_residents,
-      picked_count:   b.total_picked,
-      goto:           `/family-notify/month/${b.month_str}`,
-      sendable:       b.total_picked > 0,
-      send_endpoint:  () => api.post("/v1/photos/send-batch", { month: b.month_str }),
-    });
-  }
-
-  // 비정기 — from family_send_events
-  for (const e of events.value ?? []) {
-    rows.push({
-      kind:           "custom",
-      id:             e.id,
-      name:           e.name,
-      scheduled_date: e.scheduled_date,
-      status:         e.status,
-      photo_count:    e.photo_count,
-      picked_count:   e.picked_count,
-      goto:           `/family-notify/event/${e.id}`,
-      sendable:       e.status === "scheduled" && e.picked_count > 0,
-      send_endpoint:  () => api.post(`/v1/photos/send-event/${e.id}`, {}),
-    });
-  }
-
-  return rows.sort((a, b) => a.scheduled_date.localeCompare(b.scheduled_date));
-});
+const allRows = computed<ScheduleRow[]>(() =>
+  (events.value ?? []).map<ScheduleRow>((e) => ({
+    kind:           e.kind,
+    id:             e.id,
+    name:           e.name,
+    scheduled_date: e.scheduled_date,
+    status:         e.status,
+    photo_count:    e.photo_count,
+    picked_count:   e.picked_count,
+    goto: e.kind === "regular" && e.year_month
+      ? `/family-notify/month/${e.year_month}`
+      : `/family-notify/event/${e.id}`,
+    sendable: e.status === "scheduled" && e.picked_count > 0,
+    send_endpoint: e.kind === "regular" && e.year_month
+      ? () => api.post("/v1/photos/send-batch", { month: e.year_month })
+      : () => api.post(`/v1/photos/send-event/${e.id}`, {}),
+  })),
+);
 
 const filteredRows = computed(() =>
   allRows.value.filter((r) => kindFilter.value === "all" || r.kind === kindFilter.value),
@@ -158,7 +87,7 @@ async function sendNow(row: ScheduleRow) {
   try {
     const r = await row.send_endpoint();
     toast.success(`${r.queued}건 발송 요청 완료`);
-    await Promise.all([loadMonthBatches(), refreshEvents()]);
+    await refreshEvents();
   } catch (e: any) {
     toast.error(e?.data?.message ?? "발송 실패", "오류");
   } finally {
@@ -177,6 +106,7 @@ async function createEvent() {
   creating.value = true;
   try {
     await api.post("/v1/events", {
+      kind: "custom",
       name: newEvent.name.trim(),
       scheduled_date: newEvent.scheduled_date,
     });
@@ -189,6 +119,35 @@ async function createEvent() {
     toast.error(e?.data?.message ?? "추가 실패", "오류");
   } finally {
     creating.value = false;
+  }
+}
+
+// ─── 정기 추가 — pick a month, system auto-names + auto-includes ──────────
+const now2 = new Date();
+const regOpen = ref(false);
+const regForm = reactive({
+  year:  now2.getFullYear(),
+  month: now2.getMonth() + 1,
+});
+const regYearOptions  = [now2.getFullYear() - 1, now2.getFullYear(), now2.getFullYear() + 1];
+const regMonthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
+const creatingReg = ref(false);
+async function createRegular() {
+  if (creatingReg.value) return;
+  creatingReg.value = true;
+  try {
+    const ym = `${regForm.year}-${String(regForm.month).padStart(2, "0")}`;
+    const r = await api.post<FamilyEvent>("/v1/events", {
+      kind: "regular",
+      year_month: ym,
+    });
+    toast.success(`${r.name}이 추가되었습니다 (자동 예약 ${r.picked_count}장)`);
+    regOpen.value = false;
+    await refreshEvents();
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "추가 실패", "오류");
+  } finally {
+    creatingReg.value = false;
   }
 }
 async function cancelEvent(row: ScheduleRow) {
@@ -228,23 +187,28 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
 <template>
   <div class="px-8 py-6 max-w-6xl mx-auto">
     <header class="mb-6 flex items-start justify-between gap-4 flex-wrap">
-      <div>
-        <h1 class="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Send class="h-7 w-7 text-primary" />
-          가족 알림 스케쥴러
-        </h1>
-        <p class="text-sm text-muted-foreground mt-1">
-          정기 (매월) · 비정기 (이벤트) 한 화면에서 관리합니다.
-        </p>
+      <h1 class="text-3xl font-bold tracking-tight flex items-center gap-2">
+        <Send class="h-7 w-7 text-primary" />
+        가족 알림 스케쥴러
+      </h1>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="h-10 px-3 rounded-lg border border-input bg-background text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-muted"
+          @click="regOpen = true"
+        >
+          <Plus class="h-4 w-4" />
+          정기 추가
+        </button>
+        <button
+          type="button"
+          class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90"
+          @click="newOpen = true"
+        >
+          <Plus class="h-4 w-4" />
+          비정기 추가
+        </button>
       </div>
-      <button
-        type="button"
-        class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90"
-        @click="newOpen = true"
-      >
-        <Plus class="h-4 w-4" />
-        비정기 추가
-      </button>
     </header>
 
     <!-- Kind filter pills -->
@@ -359,6 +323,72 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
         </tbody>
       </table>
     </div>
+
+    <!-- 정기 추가 modal — just pick a month -->
+    <Teleport to="body">
+      <div
+        v-if="regOpen"
+        class="fixed inset-0 z-[110] bg-foreground/40 backdrop-blur-sm flex items-center justify-center p-4"
+        @click.self="regOpen = false"
+      >
+        <div class="bg-card text-foreground rounded-xl shadow-2xl border max-w-md w-full p-5">
+          <div class="flex items-start gap-3 mb-4">
+            <div class="h-10 w-10 rounded-full flex items-center justify-center bg-primary/10 text-primary">
+              <Calendar class="h-5 w-5" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h2 class="text-base font-semibold">정기 발송 추가</h2>
+              <p class="text-xs text-muted-foreground mt-0.5">
+                선택한 월의 모든 후보 사진이 자동으로 예약됩니다.
+              </p>
+            </div>
+            <button
+              type="button"
+              class="h-8 w-8 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"
+              @click="regOpen = false"
+            >
+              <X class="h-4 w-4" />
+            </button>
+          </div>
+          <form class="space-y-4" @submit.prevent="createRegular">
+            <FieldRow label="발송 월" required>
+              <div class="flex items-center gap-2">
+                <select
+                  v-model.number="regForm.year"
+                  class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="y in regYearOptions" :key="y" :value="y">{{ y }}년</option>
+                </select>
+                <select
+                  v-model.number="regForm.month"
+                  class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="m in regMonthOptions" :key="m" :value="m">{{ m }}월</option>
+                </select>
+              </div>
+            </FieldRow>
+            <div class="flex items-center justify-end gap-2 pt-2 border-t">
+              <button
+                type="button"
+                class="h-10 px-4 rounded-lg border border-input bg-background text-sm hover:bg-muted"
+                :disabled="creatingReg"
+                @click="regOpen = false"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-60"
+                :disabled="creatingReg"
+              >
+                <Loader2 v-if="creatingReg" class="h-4 w-4 animate-spin" />
+                추가
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 비정기 추가 modal -->
     <Teleport to="body">
