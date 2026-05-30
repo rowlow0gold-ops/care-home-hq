@@ -289,7 +289,7 @@ async function sendEvent() {
         </div>
       </div>
 
-      <FamilyPhotoPreviewModal
+      <PhotoPreviewModal
         v-model:open="previewOpen"
         :resident-id="previewResident"
         :tag="meta.tag ?? ''"

@@ -272,7 +272,7 @@ async function sendBatchNow() {
       </div>
     </div>
 
-    <FamilyPhotoPreviewModal
+    <PhotoPreviewModal
       v-model:open="previewOpen"
       :resident-id="previewResident"
       :month-send="month"
