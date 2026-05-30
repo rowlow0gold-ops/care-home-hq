@@ -1,133 +1,215 @@
 <script setup lang="ts">
 /**
- * /family-notify — HQ-only review queue for caregiver-uploaded photos
- * before they ship to family Telegram chats.
+ * /family-notify — monthly batch picker for HQ.
  *
- * Flow:
- *   Tauri caregiver → POST /v1/photos (multipart, status=pending)
- *     ↓
- *   HQ here → reviews pending list → 승인 / 반려
- *     ↓ on 승인
- *   API publishes family.photo MQ event
- *     ↓
- *   Worker consumer → Telegram sendPhoto to every resident_contact
- *                     where receives_photos = true && telegram_chat_id IS NOT NULL
- *
- * V1: 가족별 recipient picker is NOT in scope yet — worker sends to all
- *     flagged contacts. Adding per-send picking is the v1.1 slice
- *     (needs DecideReq.recipients field + worker change).
+ * Workflow:
+ *   Tablet → uploads ~5 photos / resident / week throughout the month.
+ *   HQ here (before the 1st):
+ *     · pick month + hub filter
+ *     · per resident, tick ≥3 photos for the next send batch
+ *     · can also pick photos from the prior 5 months — "이미 발송됨" badge
+ *       marks ones that already went out that month so HQ doesn't re-send
+ *   "발송 (N건)" button = fire all picked photos now (manual override).
+ *   On the 1st of the target month, a worker cron auto-fires the rest.
  */
 import {
-  Send, Camera, CheckCircle2, XCircle, RefreshCw, Building2,
-  Clock, MessageSquare, AlertCircle,
+  Send, Camera, Building2, CheckCircle2, Loader2,
+  ChevronDown, ChevronUp, AlertCircle, MessageSquare, Calendar,
 } from "@lucide/vue";
 
 useHead({ title: "가족 알림 · 케어닥 HQ" });
-// auth.global.ts already gates every route; no need for a per-page middleware.
 
-interface PhotoSummary {
-  id: string;
-  resident_id: string;
+interface ResidentBatch {
+  resident_id:   string;
   resident_name: string;
-  branch_id: string;
-  branch_name: string;
-  taken_by_name: string;
-  taken_at: string;
-  caption: string | null;
-  status: string;
-  data_url: string;       // data:image/jpeg;base64,…
+  branch_id:     string;
+  branch_name:   string;
+  photo_count:   number;
+  picked_count:  number;
 }
+interface PhotoCandidate {
+  id:                 string;
+  resident_id:        string;
+  taken_at:           string;
+  caption:            string | null;
+  status:             string;
+  picked_for_month:   string | null;
+  already_sent:       boolean;
+  already_sent_month: string | null;
+  data_url:           string;
+}
+interface PickerResponse {
+  residents:    ResidentBatch[];
+  candidates:   PhotoCandidate[];
+  total_photos: number;
+  picked_count: number;
+}
+interface Branch { id: string; name: string; branch_type: "hub" | "satellite" }
 
 const api   = useApi();
 const toast = useToast();
 
-type Tab = "pending" | "approved" | "rejected";
-const tab = ref<Tab>("pending");
+// ── Month picker: defaults to NEXT month (the upcoming send batch).
+const now = new Date();
+const nextMonthAnchor = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-const { data: photos, pending, error, refresh } = await useAsyncData(
-  () => `family-notify-${tab.value}`,
-  () => api.get<PhotoSummary[]>("/v1/photos/pending", { status: tab.value }),
-  { watch: [tab] },
+const yearOptions  = [now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1];
+const monthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
+const selectedYear  = ref<number>(nextMonthAnchor.getFullYear());
+const selectedMonth = ref<number>(nextMonthAnchor.getMonth() + 1);
+const targetMonth   = computed(() =>
+  `${selectedYear.value}-${String(selectedMonth.value).padStart(2, "0")}`,
 );
 
-const reviewNote = reactive<Record<string, string>>({});
-const decidingId = ref<string | null>(null);
+const branchFilter = ref<string>("");
+const { data: dashboard } = await useAsyncData("fam-branches", () =>
+  api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
+);
 
-async function decide(id: string, status: "approved" | "rejected") {
-  if (decidingId.value) return;
-  decidingId.value = id;
+const { data: picker, pending, error, refresh } = await useAsyncData(
+  () => `family-picker-${targetMonth.value}-${branchFilter.value}`,
+  () => api.get<PickerResponse>("/v1/photos/picker", {
+    month: targetMonth.value,
+    branch_id: branchFilter.value || undefined,
+  }),
+  { watch: [targetMonth, branchFilter] },
+);
+
+// Group candidates by resident for easy rendering.
+const photosByResident = computed(() => {
+  const m = new Map<string, PhotoCandidate[]>();
+  for (const p of picker.value?.candidates ?? []) {
+    if (!m.has(p.resident_id)) m.set(p.resident_id, []);
+    m.get(p.resident_id)!.push(p);
+  }
+  return m;
+});
+
+// "Total picked for this month" — drives the 발송 all (N건) button.
+const pickedThisMonth = computed(() =>
+  (picker.value?.candidates ?? []).filter(
+    (c) => c.picked_for_month === targetMonth.value,
+  ),
+);
+
+// Track per-resident expand/collapse — start with anyone < min collapsed
+const MIN_PICK = 3;
+const expanded = ref<Record<string, boolean>>({});
+
+function toggle(rid: string) {
+  expanded.value[rid] = !expanded.value[rid];
+}
+function pickedCountFor(rid: string) {
+  return (photosByResident.value.get(rid) ?? [])
+    .filter((p) => p.picked_for_month === targetMonth.value).length;
+}
+
+const togglingId = ref<string | null>(null);
+async function togglePick(photo: PhotoCandidate) {
+  if (togglingId.value) return;
+  togglingId.value = photo.id;
   try {
-    await api.patch(`/v1/photos/${id}/decide`, {
-      status,
-      note: reviewNote[id]?.trim() || undefined,
+    const isPicked = photo.picked_for_month === targetMonth.value;
+    await api.patch(`/v1/photos/${photo.id}/pick`, {
+      month: isPicked ? null : targetMonth.value,
     });
-    delete reviewNote[id];
-    toast.success(
-      status === "approved" ? "가족 Telegram 발송이 요청되었습니다" : "반려 처리되었습니다",
-    );
-    await refresh();
+    // Optimistic local mutation so toggling stays instant.
+    photo.picked_for_month = isPicked ? null : targetMonth.value;
   } catch (e: any) {
-    toast.error(e?.data?.message ?? "처리 실패", "오류");
+    toast.error(e?.data?.message ?? "선택 실패", "오류");
   } finally {
-    decidingId.value = null;
+    togglingId.value = null;
   }
 }
 
-function fmtTime(iso: string) {
-  return new Date(iso).toLocaleString("ko-KR", {
-    month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit",
-  });
+// 발송 all — fire every picked photo right now (manual override).
+const sending = ref(false);
+async function sendBatchNow() {
+  if (sending.value) return;
+  if (pickedThisMonth.value.length === 0) {
+    toast.error("선택된 사진이 없습니다", "알림");
+    return;
+  }
+  sending.value = true;
+  try {
+    const r = await api.post<{ queued: number }>("/v1/photos/send-batch", {
+      month:     targetMonth.value,
+      branch_id: branchFilter.value || undefined,
+    });
+    toast.success(`${r.queued}건 가족 Telegram 발송 요청 완료`);
+    await refresh();
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "발송 실패", "오류");
+  } finally {
+    sending.value = false;
+  }
 }
 
-const tabs: { key: Tab; label: string; icon: any }[] = [
-  { key: "pending",  label: "검토 대기", icon: Clock },
-  { key: "approved", label: "발송됨",   icon: CheckCircle2 },
-  { key: "rejected", label: "반려됨",   icon: XCircle },
-];
+function fmtTakenDate(iso: string) {
+  return new Date(iso).toLocaleDateString("ko-KR", {
+    month: "2-digit", day: "2-digit",
+  });
+}
 </script>
 
 <template>
   <div class="px-8 py-6 max-w-7xl mx-auto">
-    <header class="mb-6 flex items-start justify-between gap-4 flex-wrap">
-      <div>
-        <h1 class="text-3xl font-bold tracking-tight flex items-center gap-2">
-          <Send class="h-7 w-7 text-primary" />
-          가족 알림
-        </h1>
-        <p class="text-sm text-muted-foreground mt-1">
-          데스크톱 앱에서 올라온 어르신 사진을 검토하고 가족 Telegram으로 발송합니다.
-          승인 즉시 자동 전송됩니다.
-        </p>
-      </div>
-      <button
-        type="button"
-        class="h-9 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted"
-        @click="refresh()"
-      >
-        <RefreshCw class="h-3.5 w-3.5" />
-        새로고침
-      </button>
+    <header class="mb-6">
+      <h1 class="text-3xl font-bold tracking-tight flex items-center gap-2">
+        <Send class="h-7 w-7 text-primary" />
+        가족 알림
+      </h1>
     </header>
 
-    <!-- Tab bar -->
-    <div class="border-b mb-6 flex gap-1">
-      <button
-        v-for="t in tabs"
-        :key="t.key"
-        type="button"
-        class="inline-flex items-center gap-2 px-4 py-2.5 -mb-px text-sm border-b-2 transition-colors"
-        :class="tab === t.key
-          ? 'border-primary text-primary font-medium'
-          : 'border-transparent text-muted-foreground hover:text-foreground'"
-        @click="tab = t.key"
+    <!-- Filter bar + KPIs -->
+    <div class="rounded-xl border bg-card p-4 mb-6 flex flex-wrap items-center gap-3">
+      <Calendar class="h-4 w-4 text-muted-foreground" />
+      <select
+        v-model.number="selectedYear"
+        class="h-9 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
       >
-        <component :is="t.icon" class="h-4 w-4" />
-        {{ t.label }}
-        <span v-if="tab === t.key && (photos?.length ?? 0) > 0"
-              class="text-[10px] tabular-nums opacity-70 rounded-full px-1.5 py-0.5 bg-primary/10">
-          {{ photos!.length }}
-        </span>
-      </button>
+        <option v-for="y in yearOptions" :key="y" :value="y">{{ y }}년</option>
+      </select>
+      <select
+        v-model.number="selectedMonth"
+        class="h-9 w-20 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+      >
+        <option v-for="m in monthOptions" :key="m" :value="m">{{ m }}월</option>
+      </select>
+      <span class="text-xs text-muted-foreground">발송분</span>
+
+      <Building2 class="h-4 w-4 text-muted-foreground ml-3" />
+      <select
+        v-model="branchFilter"
+        class="h-9 w-48 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+      >
+        <option value="">전체 지점</option>
+        <optgroup label="광역센터 (Hub)">
+          <option v-for="b in (dashboard?.branches ?? []).filter((x) => x.branch_type === 'hub')"
+                  :key="b.id" :value="b.id">{{ b.name }}</option>
+        </optgroup>
+        <optgroup label="위성센터 (Satellite)">
+          <option v-for="b in (dashboard?.branches ?? []).filter((x) => x.branch_type === 'satellite')"
+                  :key="b.id" :value="b.id">{{ b.name }}</option>
+        </optgroup>
+      </select>
+
+      <div class="ml-auto flex items-center gap-3">
+        <div class="text-xs text-muted-foreground tabular-nums">
+          후보 <span class="font-semibold text-foreground">{{ picker?.total_photos ?? 0 }}</span>장
+          · 선택 <span class="font-semibold text-primary">{{ pickedThisMonth.length }}</span>장
+        </div>
+        <button
+          type="button"
+          class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"
+          :disabled="sending || pickedThisMonth.length === 0"
+          @click="sendBatchNow"
+        >
+          <Loader2 v-if="sending" class="h-4 w-4 animate-spin" />
+          <Send v-else class="h-4 w-4" />
+          발송 ({{ pickedThisMonth.length }}건)
+        </button>
+      </div>
     </div>
 
     <div v-if="error" class="text-sm text-destructive py-12 text-center">
@@ -135,102 +217,128 @@ const tabs: { key: Tab; label: string; icon: any }[] = [
       불러오기에 실패했습니다.
     </div>
 
-    <div v-else-if="pending && !photos" class="grid grid-cols-1 md:grid-cols-2 gap-4">
-      <Skeleton v-for="i in 4" :key="`sk-${i}`" h="14rem" />
+    <div v-else-if="pending && !picker" class="space-y-3">
+      <Skeleton h="6rem" />
+      <Skeleton h="6rem" />
+      <Skeleton h="6rem" />
     </div>
 
     <div
-      v-else-if="(photos?.length ?? 0) === 0"
+      v-else-if="(picker?.residents?.length ?? 0) === 0"
       class="rounded-2xl border bg-card p-16 text-center"
     >
       <Camera class="h-12 w-12 mx-auto mb-4 text-muted-foreground opacity-30" />
       <p class="text-sm text-muted-foreground">
-        <template v-if="tab === 'pending'">검토할 사진이 없습니다.</template>
-        <template v-else-if="tab === 'approved'">발송 기록이 없습니다.</template>
-        <template v-else>반려 기록이 없습니다.</template>
+        선택한 지점에 후보 사진이 없습니다. 태블릿이 사진을 업로드하면 여기에 표시됩니다.
       </p>
     </div>
 
-    <div v-else class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <!-- Resident gallery list -->
+    <div v-else class="space-y-3">
       <article
-        v-for="p in photos ?? []"
-        :key="p.id"
-        class="rounded-xl border bg-card overflow-hidden flex flex-col"
+        v-for="r in picker?.residents ?? []"
+        :key="r.resident_id"
+        class="rounded-xl border bg-card overflow-hidden"
       >
-        <!-- Photo -->
-        <div class="aspect-[4/3] bg-muted/50 relative overflow-hidden">
-          <img :src="p.data_url" :alt="`${p.resident_name} 사진`"
-               class="w-full h-full object-cover" loading="lazy" />
-          <span
-            v-if="tab !== 'pending'"
-            class="absolute top-2 right-2 inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider"
-            :class="tab === 'approved'
+        <!-- Header row -->
+        <button
+          type="button"
+          class="w-full px-5 py-3 flex items-center gap-3 hover:bg-muted/30 transition-colors"
+          @click="toggle(r.resident_id)"
+        >
+          <div class="h-9 w-9 rounded-full bg-gradient-to-br from-primary/80 to-primary/40 text-primary-foreground flex items-center justify-center text-sm font-semibold flex-shrink-0">
+            {{ r.resident_name.charAt(0) }}
+          </div>
+          <div class="text-left flex-1 min-w-0">
+            <div class="font-semibold">{{ r.resident_name }}</div>
+            <div class="text-xs text-muted-foreground flex items-center gap-1">
+              <Building2 class="h-3 w-3" />
+              {{ r.branch_name }}
+            </div>
+          </div>
+          <div class="text-xs tabular-nums text-muted-foreground">
+            후보 {{ r.photo_count }}장
+          </div>
+          <div
+            class="text-xs font-semibold tabular-nums rounded-full px-2 py-0.5"
+            :class="pickedCountFor(r.resident_id) >= MIN_PICK
               ? 'bg-primary/15 text-primary'
-              : 'bg-destructive/15 text-destructive'"
+              : (pickedCountFor(r.resident_id) > 0
+                  ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200'
+                  : 'bg-muted text-muted-foreground')"
+            :title="`선택 ${pickedCountFor(r.resident_id)} / 최소 ${MIN_PICK}`"
           >
-            <CheckCircle2 v-if="tab === 'approved'" class="h-3 w-3" />
-            <XCircle v-else class="h-3 w-3" />
-            {{ tab === 'approved' ? '발송됨' : '반려' }}
-          </span>
-        </div>
-
-        <!-- Body -->
-        <div class="p-4 flex-1 flex flex-col">
-          <div class="flex items-start gap-2">
-            <NuxtLink :to="`/residents/${p.resident_id}`"
-                      class="font-semibold hover:text-primary hover:underline underline-offset-2">
-              {{ p.resident_name }}
-            </NuxtLink>
-            <span class="text-xs text-muted-foreground tabular-nums ml-auto">
-              {{ fmtTime(p.taken_at) }}
-            </span>
+            선택 {{ pickedCountFor(r.resident_id) }} / 최소 {{ MIN_PICK }}
           </div>
-          <div class="text-xs text-muted-foreground mt-0.5 flex items-center gap-1">
-            <Building2 class="h-3 w-3" />
-            {{ p.branch_name }}
-            <span class="opacity-50">·</span>
-            촬영: {{ p.taken_by_name }}
-          </div>
+          <component
+            :is="expanded[r.resident_id] ? ChevronUp : ChevronDown"
+            class="h-4 w-4 text-muted-foreground"
+          />
+        </button>
 
-          <div v-if="p.caption" class="mt-3 text-sm bg-muted/30 rounded-lg p-3 flex gap-2">
-            <MessageSquare class="h-3.5 w-3.5 text-muted-foreground flex-shrink-0 mt-0.5" />
-            <span class="flex-1 whitespace-pre-wrap">{{ p.caption }}</span>
-          </div>
+        <!-- Expanded photo grid -->
+        <div v-if="expanded[r.resident_id]" class="px-5 pb-5 border-t bg-muted/10">
+          <div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 pt-4">
+            <button
+              v-for="p in photosByResident.get(r.resident_id) ?? []"
+              :key="p.id"
+              type="button"
+              class="group relative rounded-lg overflow-hidden border-2 transition-all aspect-[4/3] focus:outline-none focus:ring-4 focus:ring-primary/30"
+              :class="p.picked_for_month === targetMonth
+                ? 'border-primary shadow-md ring-2 ring-primary/20'
+                : 'border-transparent hover:border-input'"
+              :disabled="togglingId === p.id"
+              @click="togglePick(p)"
+            >
+              <img :src="p.data_url" :alt="`${r.resident_name} 사진`"
+                   class="w-full h-full object-cover" loading="lazy" />
 
-          <!-- Pending: caption note + action buttons -->
-          <template v-if="tab === 'pending'">
-            <div class="mt-3 flex-1">
-              <label class="text-xs text-muted-foreground">
-                메모 (선택) — 반려 시 사유, 승인 시 가족에게 전달됩니다.
-              </label>
-              <textarea
-                v-model="reviewNote[p.id]"
-                rows="2"
-                placeholder="예: 오늘 아침 식사 후 산책 모습입니다."
-                class="mt-1 w-full px-3 py-2 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 resize-none"
+              <!-- Pick state overlay -->
+              <div
+                v-if="p.picked_for_month === targetMonth"
+                class="absolute inset-0 bg-primary/20 flex items-center justify-center"
+              >
+                <div class="h-9 w-9 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg">
+                  <CheckCircle2 class="h-5 w-5" />
+                </div>
+              </div>
+
+              <!-- Already-sent prior-month badge -->
+              <span
+                v-if="p.already_sent"
+                class="absolute top-1.5 left-1.5 inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-semibold bg-amber-500/90 text-white shadow"
+                :title="`${p.already_sent_month} 발송분으로 이미 전달됨`"
+              >
+                {{ p.already_sent_month }} 발송됨
+              </span>
+
+              <!-- Taken-on date in the corner -->
+              <span class="absolute bottom-1.5 right-1.5 text-[10px] font-semibold bg-foreground/60 text-background rounded px-1.5 py-0.5">
+                {{ fmtTakenDate(p.taken_at) }}
+              </span>
+
+              <!-- Optional caption tooltip on hover (truncated) -->
+              <span
+                v-if="p.caption"
+                class="absolute bottom-1.5 left-1.5 right-12 truncate text-[10px] bg-foreground/60 text-background rounded px-1.5 py-0.5 opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                <MessageSquare class="h-2.5 w-2.5 inline mr-0.5" />
+                {{ p.caption }}
+              </span>
+
+              <Loader2
+                v-if="togglingId === p.id"
+                class="absolute top-1.5 right-1.5 h-4 w-4 text-primary animate-spin"
               />
-            </div>
-            <div class="mt-3 flex items-center gap-2">
-              <button
-                type="button"
-                class="flex-1 h-9 rounded-lg border border-destructive/40 bg-transparent text-destructive text-sm font-medium inline-flex items-center justify-center gap-1.5 hover:bg-destructive/10 disabled:opacity-50"
-                :disabled="decidingId === p.id"
-                @click="decide(p.id, 'rejected')"
-              >
-                <XCircle class="h-3.5 w-3.5" />
-                반려
-              </button>
-              <button
-                type="button"
-                class="flex-1 h-9 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center justify-center gap-1.5 hover:bg-primary/90 disabled:opacity-60"
-                :disabled="decidingId === p.id"
-                @click="decide(p.id, 'approved')"
-              >
-                <Send class="h-3.5 w-3.5" />
-                승인 · 가족에게 발송
-              </button>
-            </div>
-          </template>
+            </button>
+          </div>
+
+          <p
+            v-if="pickedCountFor(r.resident_id) > 0 && pickedCountFor(r.resident_id) < MIN_PICK"
+            class="mt-3 text-[11px] text-amber-700 dark:text-amber-300"
+          >
+            ⚠ 가족 발송 최소 {{ MIN_PICK }}장이 필요합니다. 현재 {{ pickedCountFor(r.resident_id) }}장 선택됨.
+          </p>
         </div>
       </article>
     </div>
