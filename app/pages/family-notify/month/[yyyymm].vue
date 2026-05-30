@@ -91,6 +91,14 @@ const showingTo = computed(() =>
   paged.value ? Math.min(page.value * pageSize.value, paged.value.total) : 0,
 );
 
+// Row-click → photo preview modal
+const previewOpen     = ref(false);
+const previewResident = ref<string | null>(null);
+function openPreview(rid: string) {
+  previewResident.value = rid;
+  previewOpen.value = true;
+}
+
 const sending = ref(false);
 async function sendBatchNow() {
   if (sending.value) return;
@@ -204,7 +212,7 @@ async function sendBatchNow() {
           </td></tr>
         </tbody>
         <tbody v-else>
-          <tr v-for="r in paged?.items ?? []" :key="r.resident_id" class="border-t">
+          <tr v-for="r in paged?.items ?? []" :key="r.resident_id" class="border-t hover:bg-muted/40 cursor-pointer transition-colors" @click="openPreview(r.resident_id)">
             <td class="py-3 px-6">
               <div class="flex items-center gap-3">
                 <div class="h-8 w-8 rounded-full bg-gradient-to-br from-primary/80 to-primary/40 text-primary-foreground flex items-center justify-center text-xs font-semibold flex-shrink-0">
@@ -213,6 +221,7 @@ async function sendBatchNow() {
                 <NuxtLink
                   :to="`/residents/${r.resident_id}`"
                   class="font-medium hover:text-primary hover:underline underline-offset-2"
+                  @click.stop
                 >
                   {{ r.resident_name }}
                 </NuxtLink>
@@ -262,5 +271,12 @@ async function sendBatchNow() {
         </div>
       </div>
     </div>
+
+    <FamilyPhotoPreviewModal
+      v-model:open="previewOpen"
+      :resident-id="previewResident"
+      :month-send="month"
+      :batch-label="`${sendYear}년 ${sendMonth}월 정기`"
+    />
   </div>
 </template>

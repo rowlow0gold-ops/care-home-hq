@@ -1,46 +1,34 @@
 <script setup lang="ts">
 /**
- * /family-notify/event/[id] — read-only summary for a 비정기 event.
+ * /family-notify/event/[id] — 비정기 batch summary, same shape as
+ * /family-notify/month/[yyyymm].
  *
- * Photos are collected by tag (set by caregivers at tablet upload time).
- * HQ doesn't curate — they just see who has photos in this batch and
- * fire 발송 when ready.
+ * Server-side paged, branch + 사진 보유 filters, row-click photo preview.
+ * 'Photos this batch' = every resident_photos row with tag = event.tag.
  */
 import {
-  ArrowLeft, Send, Building2, Loader2, AlertCircle,
-  CalendarHeart, Camera,
+  Send, Camera, Building2, Loader2, Search, ArrowLeft, AlertCircle,
+  ChevronLeft, ChevronRight, CalendarHeart,
 } from "@lucide/vue";
 
-const route   = useRoute();
-const router  = useRouter();
-const api     = useApi();
-const toast   = useToast();
-const eventId = route.params.id as string;
-
-interface PhotoCandidate {
-  id: string;
-  resident_id: string;
-  taken_at: string;
-  caption: string | null;
-  status: string;
-  picked_for_month: string | null;
-  already_sent: boolean;
-  data_url: string;
+interface ResidentBatchRow {
+  resident_id:     string;
+  resident_name:   string;
+  branch_id:       string;
+  branch_name:     string;
+  candidate_count: number;
+  picked_count:    number;
+  sent_count:      number;
+  last_sent_month: string | null;
 }
-interface ResidentRow {
-  resident_id:    string;
-  resident_name:  string;
-  branch_id:      string;
-  branch_name:    string;
-  photo_count:    number;
-  picked_count:   number;
+interface PickerPagedResponse {
+  items:        ResidentBatchRow[];
+  total:        number;
+  total_picked: number;
+  page:         number;
+  page_size:    number;
 }
-interface EventPickerResp {
-  residents:    ResidentRow[];
-  candidates:   PhotoCandidate[];
-  total_photos: number;
-  picked_count: number;
-}
+interface Branch { id: string; name: string; branch_type: "hub" | "satellite" }
 interface FamilyEvent {
   id: string; name: string; kind: string;
   year_month: string | null; tag: string | null;
@@ -50,21 +38,73 @@ interface FamilyEvent {
   photo_count: number; picked_count: number;
 }
 
+const route   = useRoute();
+const router  = useRouter();
+const api     = useApi();
+const toast   = useToast();
+const eventId = route.params.id as string;
+
 const { data: events } = await useAsyncData(`event-meta-${eventId}`, () =>
   api.get<FamilyEvent[]>("/v1/events"),
 );
 const meta = computed(() => (events.value ?? []).find((e) => e.id === eventId) ?? null);
 useHead({ title: () => `${meta.value?.name ?? "이벤트"} · 가족 알림` });
 
-const { data: picker, pending, error, refresh } = await useAsyncData(
-  `event-picker-${eventId}`,
-  () => api.get<EventPickerResp>(`/v1/photos/picker/event/${eventId}`),
+const branch = ref<string>("");
+const has    = ref<string>("");
+const q      = ref<string>("");
+const appliedBranch = ref(branch.value);
+const appliedHas    = ref(has.value);
+const appliedQ      = ref(q.value);
+const page     = ref(1);
+const pageSize = ref(25);
+
+function applyFilters() {
+  appliedBranch.value = branch.value;
+  appliedHas.value    = has.value;
+  appliedQ.value      = q.value.trim();
+  page.value = 1;
+}
+watch(pageSize, () => { page.value = 1; });
+
+const { data: dashboard } = await useAsyncData("fam-branches-event", () =>
+  api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
 );
+
+const { data: paged, pending, error, refresh } = await useAsyncData(
+  () => `family-event-${eventId}-${appliedBranch.value}-${appliedHas.value}-${appliedQ.value}-${page.value}-${pageSize.value}`,
+  () => api.get<PickerPagedResponse>(`/v1/photos/picker/event/${eventId}/paged`, {
+    branch_id: appliedBranch.value || undefined,
+    q:         appliedQ.value || undefined,
+    status:    appliedHas.value || undefined,
+    page:      page.value,
+    page_size: pageSize.value,
+  }),
+  { watch: [appliedBranch, appliedHas, appliedQ, page, pageSize] },
+);
+
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil((paged.value?.total ?? 0) / pageSize.value)),
+);
+const showingFrom = computed(() =>
+  paged.value && paged.value.total > 0 ? (page.value - 1) * pageSize.value + 1 : 0,
+);
+const showingTo = computed(() =>
+  paged.value ? Math.min(page.value * pageSize.value, paged.value.total) : 0,
+);
+
+// Row-click → photo preview modal
+const previewOpen     = ref(false);
+const previewResident = ref<string | null>(null);
+function openPreview(rid: string) {
+  previewResident.value = rid;
+  previewOpen.value = true;
+}
 
 const sending = ref(false);
 async function sendEvent() {
   if (sending.value) return;
-  const n = picker.value?.total_photos ?? 0;
+  const n = paged.value?.total_picked ?? 0;
   if (n === 0) { toast.error("발송할 사진이 없습니다", "알림"); return; }
   if (!confirm(`'${meta.value?.name}' 이벤트로 ${n}장을 가족 Telegram에 즉시 발송합니다.`)) return;
   sending.value = true;
@@ -95,10 +135,7 @@ async function sendEvent() {
       <p class="text-sm text-muted-foreground mb-3">
         이 이벤트를 찾을 수 없습니다 (또는 취소·삭제되었을 수 있습니다).
       </p>
-      <NuxtLink
-        to="/family-notify"
-        class="text-sm text-primary hover:underline inline-flex items-center gap-1"
-      >
+      <NuxtLink to="/family-notify" class="text-sm text-primary hover:underline inline-flex items-center gap-1">
         <ArrowLeft class="h-3.5 w-3.5" />
         스케쥴러로 돌아가기
       </NuxtLink>
@@ -116,22 +153,59 @@ async function sendEvent() {
             <span class="inline-flex items-center gap-1 font-mono text-xs bg-muted px-2 py-0.5 rounded">
               태그: {{ meta.tag }}
             </span>
-            <span>· 후보 사진 {{ picker?.total_photos ?? 0 }}장</span>
           </p>
         </div>
         <button
           type="button"
           class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"
-          :disabled="sending || (picker?.total_photos ?? 0) === 0 || meta.status !== 'scheduled'"
+          :disabled="sending || (paged?.total_picked ?? 0) === 0 || meta.status !== 'scheduled'"
           @click="sendEvent"
         >
           <Loader2 v-if="sending" class="h-4 w-4 animate-spin" />
           <Send v-else class="h-4 w-4" />
-          발송 ({{ picker?.total_photos ?? 0 }}건)
+          발송 ({{ paged?.total_picked ?? 0 }}건)
         </button>
       </header>
 
       <div class="rounded-xl border bg-card overflow-hidden">
+        <!-- Filter bar — same shape as /month -->
+        <div class="px-6 py-3 border-b flex flex-wrap items-center gap-2 bg-muted/10">
+          <div class="relative flex-1 min-w-[200px] max-w-sm">
+            <Search class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+            <input
+              v-model="q"
+              placeholder="어르신 이름 또는 지점 검색"
+              class="w-full h-10 pl-9 pr-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+              @keyup.enter="applyFilters"
+            >
+          </div>
+          <select v-model="branch" class="h-10 w-48 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15">
+            <option value="">전체 지점</option>
+            <optgroup label="광역센터 (Hub)">
+              <option v-for="b in (dashboard?.branches ?? []).filter((x) => x.branch_type === 'hub')" :key="b.id" :value="b.id">{{ b.name }}</option>
+            </optgroup>
+            <optgroup label="위성센터 (Satellite)">
+              <option v-for="b in (dashboard?.branches ?? []).filter((x) => x.branch_type === 'satellite')" :key="b.id" :value="b.id">{{ b.name }}</option>
+            </optgroup>
+          </select>
+          <select v-model="has" class="h-10 w-32 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15">
+            <option value="">사진 전체</option>
+            <option value="has_photos">사진 있음</option>
+            <option value="no_photos">사진 없음</option>
+          </select>
+          <button
+            type="button" @click="applyFilters" :disabled="pending"
+            aria-label="검색" title="검색"
+            class="h-10 w-10 rounded-lg bg-primary text-primary-foreground hover:bg-primary/90 focus:outline-none focus:ring-4 focus:ring-primary/30 inline-flex items-center justify-center disabled:opacity-60"
+          >
+            <Loader2 v-if="pending" class="h-4 w-4 animate-spin" />
+            <Search v-else class="h-4 w-4" />
+          </button>
+          <span class="ml-auto text-xs text-muted-foreground tabular-nums">
+            {{ showingFrom }}–{{ showingTo }} / 총 {{ paged?.total ?? 0 }}명
+          </span>
+        </div>
+
         <table class="w-full text-sm">
           <thead>
             <tr class="text-left text-xs text-muted-foreground bg-muted/30">
@@ -140,15 +214,21 @@ async function sendEvent() {
               <th class="py-3 px-3 font-medium text-right">발송 예정</th>
             </tr>
           </thead>
-          <tbody v-if="pending && !picker">
+          <tbody v-if="pending && !paged">
             <tr v-for="i in 6" :key="`sk-${i}`" class="border-t">
               <td class="py-3 px-6"><Skeleton w="6rem" /></td>
               <td class="py-3 px-3"><Skeleton w="7rem" /></td>
               <td class="py-3 px-3 text-right"><Skeleton w="2rem" class="ml-auto" /></td>
             </tr>
           </tbody>
+          <tbody v-else-if="error">
+            <tr><td colspan="3" class="py-12 text-center text-destructive">
+              <AlertCircle class="h-8 w-8 mx-auto mb-2" />
+              불러오기 실패 <button class="underline ml-2" @click="refresh()">다시 시도</button>
+            </td></tr>
+          </tbody>
           <tbody v-else>
-            <tr v-for="r in picker?.residents ?? []" :key="r.resident_id" class="border-t">
+            <tr v-for="r in paged?.items ?? []" :key="r.resident_id" class="border-t hover:bg-muted/40 cursor-pointer transition-colors" @click="openPreview(r.resident_id)">
               <td class="py-3 px-6">
                 <div class="flex items-center gap-3">
                   <div class="h-8 w-8 rounded-full bg-gradient-to-br from-primary/80 to-primary/40 text-primary-foreground flex items-center justify-center text-xs font-semibold flex-shrink-0">
@@ -157,6 +237,7 @@ async function sendEvent() {
                   <NuxtLink
                     :to="`/residents/${r.resident_id}`"
                     class="font-medium hover:text-primary hover:underline underline-offset-2"
+                    @click.stop
                   >
                     {{ r.resident_name }}
                   </NuxtLink>
@@ -171,23 +252,47 @@ async function sendEvent() {
               <td class="py-3 px-3 text-right">
                 <span
                   class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium tabular-nums"
-                  :class="r.photo_count === 0
+                  :class="r.picked_count === 0
                     ? 'bg-muted text-muted-foreground'
                     : 'bg-primary/10 text-primary'"
                 >
-                  {{ r.photo_count }}장
+                  {{ r.picked_count }}장
                 </span>
               </td>
             </tr>
-            <tr v-if="(picker?.residents?.length ?? 0) === 0">
+            <tr v-if="(paged?.items?.length ?? 0) === 0">
               <td colspan="3" class="py-12 text-center text-muted-foreground">
                 <Camera class="h-10 w-10 mx-auto mb-3 opacity-30" />
-                이 태그(<span class="font-mono">{{ meta.tag }}</span>)로 태블릿에서 올라온 사진이 없습니다.
+                조건에 맞는 어르신이 없습니다.
               </td>
             </tr>
           </tbody>
         </table>
+
+        <div v-if="(paged?.total ?? 0) > 0" class="px-6 py-3 border-t flex items-center justify-between text-sm">
+          <div class="text-xs text-muted-foreground">페이지 {{ paged?.page ?? 1 }} / {{ totalPages }}</div>
+          <div class="flex items-center gap-2">
+            <select v-model.number="pageSize" class="h-8 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary">
+              <option :value="25">25/page</option>
+              <option :value="50">50/page</option>
+              <option :value="100">100/page</option>
+            </select>
+            <button class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="page <= 1" @click="page--">
+              <ChevronLeft class="h-4 w-4" />
+            </button>
+            <button class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="page >= totalPages" @click="page++">
+              <ChevronRight class="h-4 w-4" />
+            </button>
+          </div>
+        </div>
       </div>
+
+      <FamilyPhotoPreviewModal
+        v-model:open="previewOpen"
+        :resident-id="previewResident"
+        :tag="meta.tag ?? ''"
+        :batch-label="meta.name"
+      />
     </template>
   </div>
 </template>
