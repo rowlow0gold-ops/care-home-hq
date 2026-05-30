@@ -122,7 +122,10 @@ async function createEvent() {
   }
 }
 
-// ─── 정기 추가 — pick a month, system auto-names + auto-includes ──────────
+// ─── 정기 추가 — one-click: create + send all photos of that month ────────
+// Per business spec: 정기 doesn't curate, it sends everything pending. So
+// the button creates the batch row (for audit/history), auto-includes all
+// photos, AND fires the Telegram send immediately. No picker step needed.
 const now2 = new Date();
 const regOpen = ref(false);
 const regForm = reactive({
@@ -134,18 +137,21 @@ const regMonthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
 const creatingReg = ref(false);
 async function createRegular() {
   if (creatingReg.value) return;
+  const ym = `${regForm.year}-${String(regForm.month).padStart(2, "0")}`;
+  if (!confirm(`${regForm.year}년 ${regForm.month}월 모든 후보 사진을 가족 Telegram으로 즉시 발송합니다. 진행할까요?`)) return;
   creatingReg.value = true;
   try {
-    const ym = `${regForm.year}-${String(regForm.month).padStart(2, "0")}`;
-    const r = await api.post<FamilyEvent>("/v1/events", {
-      kind: "regular",
-      year_month: ym,
+    // 1. Create the batch (auto-includes all photos via picked_for_month=ym)
+    await api.post<FamilyEvent>("/v1/events", {
+      kind: "regular", year_month: ym,
     });
-    toast.success(`${r.name}이 추가되었습니다 (자동 예약 ${r.picked_count}장)`);
+    // 2. Fire send-batch immediately for that month
+    const r = await api.post<{ queued: number }>("/v1/photos/send-batch", { month: ym });
+    toast.success(`${regForm.year}년 ${regForm.month}월 ${r.queued}장 가족 발송 완료`);
     regOpen.value = false;
     await refreshEvents();
   } catch (e: any) {
-    toast.error(e?.data?.message ?? "추가 실패", "오류");
+    toast.error(e?.data?.message ?? "발송 실패", "오류");
   } finally {
     creatingReg.value = false;
   }
@@ -337,9 +343,9 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
               <Calendar class="h-5 w-5" />
             </div>
             <div class="flex-1 min-w-0">
-              <h2 class="text-base font-semibold">정기 발송 추가</h2>
+              <h2 class="text-base font-semibold">정기 발송</h2>
               <p class="text-xs text-muted-foreground mt-0.5">
-                선택한 월의 모든 후보 사진이 자동으로 예약됩니다.
+                선택한 월의 모든 사진을 즉시 가족에게 발송합니다.
               </p>
             </div>
             <button
@@ -382,7 +388,8 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
                 :disabled="creatingReg"
               >
                 <Loader2 v-if="creatingReg" class="h-4 w-4 animate-spin" />
-                추가
+                <Send v-else class="h-4 w-4" />
+                즉시 발송
               </button>
             </div>
           </form>
