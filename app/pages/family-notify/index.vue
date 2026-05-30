@@ -9,8 +9,8 @@
  * 비정기 batches come from family_send_events.
  */
 import {
-  Send, Calendar, CalendarHeart, Plus, X, Loader2, AlertCircle,
-  ChevronRight, Trash2, CheckCircle2,
+  Send, Calendar, CalendarHeart, Plus, X, Loader2,
+  ChevronRight, Trash2, CheckCircle2, ChevronLeft,
 } from "@lucide/vue";
 
 useHead({ title: "가족 알림 · 케어닥 HQ" });
@@ -27,38 +27,54 @@ interface FamilyEvent {
   sent_at:        string | null;
   photo_count:    number;
   picked_count:   number;
+  resident_count: number;
+}
+interface EventPage {
+  items:     FamilyEvent[];
+  total:     number;
+  page:      number;
+  page_size: number;
 }
 
 const api    = useApi();
 const router = useRouter();
 const toast  = useToast();
 
-// ─── Filter: 종류 (kind) ───────────────────────────────────────────────────
+// ─── Filter: 종류 (kind) + server-side pagination ─────────────────────────
 type Kind = "all" | "regular" | "custom";
 const kindFilter = ref<Kind>("all");
+const page       = ref(1);
+const pageSize   = ref(25);
+watch(kindFilter, () => { page.value = 1; });
+watch(pageSize,   () => { page.value = 1; });
 
-// ─── All batches (정기 + 비정기) come from family_send_events ───────────────
-const { data: events, refresh: refreshEvents } = await useAsyncData(
-  "scheduler-events",
-  () => api.get<FamilyEvent[]>("/v1/events"),
+const { data: paged, pending: loadingBatches, refresh: refreshEvents } = await useAsyncData(
+  () => `scheduler-${kindFilter.value}-${page.value}-${pageSize.value}`,
+  () => api.get<EventPage>("/v1/events", {
+    kind:      kindFilter.value === "all" ? undefined : kindFilter.value,
+    page:      page.value,
+    page_size: pageSize.value,
+  }),
+  { watch: [kindFilter, page, pageSize] },
 );
 onActivated(refreshEvents);
 
 interface ScheduleRow {
-  kind:           Kind;
+  kind:           Exclude<Kind, "all">;
   id:             string;
   name:           string;
   scheduled_date: string;
   status:         "scheduled" | "sent" | "cancelled";
   photo_count:    number;
   picked_count:   number;
+  resident_count: number;
   goto:           string;
   sendable:       boolean;
   send_endpoint:  () => Promise<{ queued: number }>;
 }
 
-const allRows = computed<ScheduleRow[]>(() =>
-  (events.value ?? []).map<ScheduleRow>((e) => ({
+const filteredRows = computed<ScheduleRow[]>(() =>
+  (paged.value?.items ?? []).map<ScheduleRow>((e) => ({
     kind:           e.kind,
     id:             e.id,
     name:           e.name,
@@ -66,22 +82,24 @@ const allRows = computed<ScheduleRow[]>(() =>
     status:         e.status,
     photo_count:    e.photo_count,
     picked_count:   e.picked_count,
+    resident_count: e.resident_count,
     goto: e.kind === "regular" && e.year_month
       ? `/family-notify/month/${e.year_month}`
       : `/family-notify/event/${e.id}`,
-    // 정기 fires automatically on its scheduled date — no manual send.
-    // 비정기 needs HQ to push 발송 (cron auto-fire is a follow-up).
     sendable: e.kind === "custom" && e.status === "scheduled" && e.picked_count > 0,
     send_endpoint: () => api.post(`/v1/photos/send-event/${e.id}`, {}),
   })),
 );
 
-const filteredRows = computed(() =>
-  allRows.value
-    .filter((r) => kindFilter.value === "all" || r.kind === kindFilter.value)
-    // Sort by 발송 예정일 DESC — most recent / upcoming on top
-    .slice()
-    .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date)),
+const total = computed(() => paged.value?.total ?? 0);
+const totalPages = computed(() =>
+  Math.max(1, Math.ceil(total.value / pageSize.value)),
+);
+const showingFrom = computed(() =>
+  total.value > 0 ? (page.value - 1) * pageSize.value + 1 : 0,
+);
+const showingTo = computed(() =>
+  Math.min(page.value * pageSize.value, total.value),
 );
 
 const sendingId = ref<string | null>(null);
@@ -224,12 +242,12 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
       >
         {{ kindLabel[k] }}
       </button>
-      <span class="text-xs text-muted-foreground ml-2 tabular-nums">
-        총 {{ filteredRows.length }}개 일정
+      <span class="ml-auto text-xs text-muted-foreground tabular-nums">
+        {{ showingFrom }}–{{ showingTo }} / 총 {{ total }}개 일정
       </span>
     </div>
 
-    <div v-if="loadingBatches && monthBatches.length === 0" class="space-y-3">
+    <div v-if="loadingBatches && filteredRows.length === 0" class="space-y-3">
       <Skeleton h="4rem" />
       <Skeleton h="4rem" />
       <Skeleton h="4rem" />
@@ -244,7 +262,7 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
     </div>
 
     <div v-else class="rounded-xl border bg-card overflow-hidden">
-      <table class="w-full text-sm">
+      <table v-if="filteredRows.length" class="w-full text-sm">
         <thead>
           <tr class="text-left text-xs text-muted-foreground bg-muted/30">
             <th class="py-3 px-6 font-medium">종류</th>
@@ -285,7 +303,7 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
             </td>
             <td class="py-3 px-3 text-right tabular-nums text-sm">
               <span class="font-semibold text-primary">{{ row.picked_count }}</span>
-              <span class="text-muted-foreground"> 장 / {{ row.photo_count }}{{ row.kind === 'regular' ? '명' : '장' }}</span>
+              <span class="text-muted-foreground"> 장 / {{ row.resident_count }}명</span>
             </td>
             <td class="py-3 px-6 text-right">
               <div class="inline-flex items-center gap-1.5" @click.stop>
@@ -321,6 +339,23 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
           </tr>
         </tbody>
       </table>
+
+      <div v-if="total > 0" class="px-6 py-3 border-t flex items-center justify-between text-sm">
+        <div class="text-xs text-muted-foreground">페이지 {{ page }} / {{ totalPages }}</div>
+        <div class="flex items-center gap-2">
+          <select v-model.number="pageSize" class="h-8 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary">
+            <option :value="25">25/page</option>
+            <option :value="50">50/page</option>
+            <option :value="100">100/page</option>
+          </select>
+          <button class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="page <= 1" @click="page--">
+            <ChevronLeft class="h-4 w-4" />
+          </button>
+          <button class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="page >= totalPages" @click="page++">
+            <ChevronRight class="h-4 w-4" />
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- 비정기 추가 modal -->
