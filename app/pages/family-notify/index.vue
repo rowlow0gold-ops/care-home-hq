@@ -96,23 +96,37 @@ async function sendNow(row: ScheduleRow) {
 }
 
 // ─── 비정기 추가 ───────────────────────────────────────────────────────────
+// Same year+month+day select pattern as 정기 추가 (consistency requested).
+const customNext = new Date(now2.getFullYear(), now2.getMonth() + 1, 1);
 const newOpen = ref(false);
-const newEvent = reactive({ name: "", scheduled_date: "" });
+const newEvent = reactive({
+  name: "",
+  year:  customNext.getFullYear(),
+  month: customNext.getMonth() + 1,
+  day:   1,
+});
+const customDayOpts = computed(() => {
+  const max = new Date(newEvent.year, newEvent.month, 0).getDate();
+  return Array.from({ length: max }, (_, i) => i + 1);
+});
+watch(customDayOpts, (opts) => {
+  if (newEvent.day > opts.length) newEvent.day = opts.length;
+});
+
 const creating = ref(false);
 async function createEvent() {
   if (creating.value) return;
   if (!newEvent.name.trim()) { toast.error("이벤트 이름을 입력해 주세요"); return; }
-  if (!newEvent.scheduled_date) { toast.error("일자를 선택해 주세요"); return; }
+  const d = `${newEvent.year}-${String(newEvent.month).padStart(2, "0")}-${String(newEvent.day).padStart(2, "0")}`;
   creating.value = true;
   try {
     await api.post("/v1/events", {
       kind: "custom",
       name: newEvent.name.trim(),
-      scheduled_date: newEvent.scheduled_date,
+      scheduled_date: d,
     });
     toast.success("이벤트가 추가되었습니다");
     newEvent.name = "";
-    newEvent.scheduled_date = "";
     newOpen.value = false;
     await refreshEvents();
   } catch (e: any) {
@@ -467,11 +481,26 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
               >
             </FieldRow>
             <FieldRow label="발송 예정일" required>
-              <input
-                v-model="newEvent.scheduled_date"
-                type="date"
-                class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15 [color-scheme:light] dark:[color-scheme:dark]"
-              >
+              <div class="flex items-center gap-2">
+                <select
+                  v-model.number="newEvent.year"
+                  class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="y in yearOpts" :key="y" :value="y">{{ y }}년</option>
+                </select>
+                <select
+                  v-model.number="newEvent.month"
+                  class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="m in monthOpts" :key="m" :value="m">{{ m }}월</option>
+                </select>
+                <select
+                  v-model.number="newEvent.day"
+                  class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="d in customDayOpts" :key="d" :value="d">{{ d }}일</option>
+                </select>
+              </div>
             </FieldRow>
             <div class="flex items-center justify-end gap-2 pt-2 border-t">
               <button
