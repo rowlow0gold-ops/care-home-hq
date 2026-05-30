@@ -97,12 +97,17 @@ async function sendNow(row: ScheduleRow) {
 
 // ─── 비정기 추가 ───────────────────────────────────────────────────────────
 // Same year+month+day select pattern as 정기 추가 (consistency requested).
-const customNext = new Date(now2.getFullYear(), now2.getMonth() + 1, 1);
+// Defaults to "next month, day 1". Inline the date math so this block is
+// independent of the 정기 section's `now2` below (avoid TDZ).
+const _customNext = (() => {
+  const d = new Date();
+  return new Date(d.getFullYear(), d.getMonth() + 1, 1);
+})();
 const newOpen = ref(false);
 const newEvent = reactive({
   name: "",
-  year:  customNext.getFullYear(),
-  month: customNext.getMonth() + 1,
+  year:  _customNext.getFullYear(),
+  month: _customNext.getMonth() + 1,
   day:   1,
 });
 const customDayOpts = computed(() => {
