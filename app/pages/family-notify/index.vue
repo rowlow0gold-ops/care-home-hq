@@ -122,36 +122,44 @@ async function createEvent() {
   }
 }
 
-// ─── 정기 추가 — one-click: create + send all photos of that month ────────
-// Per business spec: 정기 doesn't curate, it sends everything pending. So
-// the button creates the batch row (for audit/history), auto-includes all
-// photos, AND fires the Telegram send immediately. No picker step needed.
+// ─── 정기 추가 — schedule a monthly send.
+// Defaults to LAST month (the "what just finished" review the user
+// expects). HQ picks year + month + day; the batch row is created and
+// auto-includes every pending photo for that month. Send fires later
+// (cron on the scheduled_date, or manually via 발송 on the row).
 const now2 = new Date();
+const lastMonthAnchor = new Date(now2.getFullYear(), now2.getMonth() - 1, 1);
 const regOpen = ref(false);
 const regForm = reactive({
-  year:  now2.getFullYear(),
-  month: now2.getMonth() + 1,
+  year:  lastMonthAnchor.getFullYear(),
+  month: lastMonthAnchor.getMonth() + 1,
+  day:   1,
 });
 const regYearOptions  = [now2.getFullYear() - 1, now2.getFullYear(), now2.getFullYear() + 1];
 const regMonthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
+const regDayOptions   = computed(() => {
+  // Days valid for the selected year+month.
+  const max = new Date(regForm.year, regForm.month, 0).getDate();
+  return Array.from({ length: max }, (_, i) => i + 1);
+});
+
 const creatingReg = ref(false);
 async function createRegular() {
   if (creatingReg.value) return;
   const ym = `${regForm.year}-${String(regForm.month).padStart(2, "0")}`;
-  if (!confirm(`${regForm.year}년 ${regForm.month}월 모든 후보 사진을 가족 Telegram으로 즉시 발송합니다. 진행할까요?`)) return;
+  const d  = `${ym}-${String(regForm.day).padStart(2, "0")}`;
   creatingReg.value = true;
   try {
-    // 1. Create the batch (auto-includes all photos via picked_for_month=ym)
     await api.post<FamilyEvent>("/v1/events", {
-      kind: "regular", year_month: ym,
+      kind: "regular",
+      year_month: ym,
+      scheduled_date: d,
     });
-    // 2. Fire send-batch immediately for that month
-    const r = await api.post<{ queued: number }>("/v1/photos/send-batch", { month: ym });
-    toast.success(`${regForm.year}년 ${regForm.month}월 ${r.queued}장 가족 발송 완료`);
+    toast.success(`${regForm.year}년 ${regForm.month}월 정기 발송이 추가되었습니다`);
     regOpen.value = false;
     await refreshEvents();
   } catch (e: any) {
-    toast.error(e?.data?.message ?? "발송 실패", "오류");
+    toast.error(e?.data?.message ?? "추가 실패", "오류");
   } finally {
     creatingReg.value = false;
   }
@@ -343,10 +351,7 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
               <Calendar class="h-5 w-5" />
             </div>
             <div class="flex-1 min-w-0">
-              <h2 class="text-base font-semibold">정기 발송</h2>
-              <p class="text-xs text-muted-foreground mt-0.5">
-                선택한 월의 모든 사진을 즉시 가족에게 발송합니다.
-              </p>
+              <h2 class="text-base font-semibold">정기 발송 추가</h2>
             </div>
             <button
               type="button"
@@ -357,7 +362,7 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
             </button>
           </div>
           <form class="space-y-4" @submit.prevent="createRegular">
-            <FieldRow label="발송 월" required>
+            <FieldRow label="대상 월" required hint="이달의 모든 사진이 자동 포함됩니다.">
               <div class="flex items-center gap-2">
                 <select
                   v-model.number="regForm.year"
@@ -372,6 +377,14 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
                   <option v-for="m in regMonthOptions" :key="m" :value="m">{{ m }}월</option>
                 </select>
               </div>
+            </FieldRow>
+            <FieldRow label="발송 예정일" required>
+              <select
+                v-model.number="regForm.day"
+                class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+              >
+                <option v-for="d in regDayOptions" :key="d" :value="d">{{ d }}일</option>
+              </select>
             </FieldRow>
             <div class="flex items-center justify-end gap-2 pt-2 border-t">
               <button
@@ -388,8 +401,7 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
                 :disabled="creatingReg"
               >
                 <Loader2 v-if="creatingReg" class="h-4 w-4 animate-spin" />
-                <Send v-else class="h-4 w-4" />
-                즉시 발송
+                추가
               </button>
             </div>
           </form>
