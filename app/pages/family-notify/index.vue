@@ -219,14 +219,13 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
         가족 알림 스케쥴러
       </h1>
       <div class="flex items-center gap-2">
-        <button
-          type="button"
+        <NuxtLink
+          to="/family-notify/schedule"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-muted"
-          @click="kindFilter = 'regular'"
         >
           <Calendar class="h-4 w-4" />
-          정기 보기
-        </button>
+          정기 스케쥴
+        </NuxtLink>
         <button
           type="button"
           class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90"
