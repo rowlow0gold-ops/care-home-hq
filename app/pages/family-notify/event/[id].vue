@@ -51,7 +51,9 @@ const meta = computed(() => (events.value ?? []).find((e) => e.id === eventId) ?
 useHead({ title: () => `${meta.value?.name ?? "이벤트"} · 가족 알림` });
 
 const branch = ref<string>("");
-const has    = ref<string>("");
+// Default to '사진 있음' so the page total matches the scheduler card
+// (which counts only residents whose photos will actually be sent).
+const has    = ref<string>("has_photos");
 const q      = ref<string>("");
 const appliedBranch = ref(branch.value);
 const appliedHas    = ref(has.value);
