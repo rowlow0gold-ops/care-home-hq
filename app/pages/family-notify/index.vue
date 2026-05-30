@@ -11,7 +11,7 @@
  */
 import {
   Send, Camera, Building2, Loader2, Search, Calendar,
-  ChevronLeft, ChevronRight, AlertCircle, CheckCircle2,
+  ChevronLeft, ChevronRight, AlertCircle, CheckCircle2, Wand2,
 } from "@lucide/vue";
 
 useHead({ title: "가족 알림 · 케어닥 HQ" });
@@ -100,6 +100,38 @@ const showingFrom = computed(() =>
 const showingTo = computed(() =>
   paged.value ? Math.min(page.value * pageSize.value, paged.value.total) : 0,
 );
+
+// Refresh whenever the user returns to this page (e.g. after picking on
+// the detail page). Without this, total_picked stays stale and the
+// 발송 button can look like it's "not activated" after a successful pick.
+onActivated(refresh);
+if (process.client) {
+  watch(() => useRoute().fullPath, (path) => {
+    if (path.startsWith("/family-notify") && !path.includes("/family-notify/")) {
+      refresh();
+    }
+  });
+}
+
+// 자동 선택 — reserve 3 random photos per resident across the filter
+const autoPicking = ref(false);
+async function autoPickAll() {
+  if (autoPicking.value) return;
+  autoPicking.value = true;
+  try {
+    const r = await api.post<{ picked: number }>("/v1/photos/auto-pick", {
+      month:     appliedMonthStr.value,
+      branch_id: appliedBranch.value || undefined,
+      count:     3,
+    });
+    toast.success(`${r.picked}장 자동 예약 완료`);
+    await refresh();
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "자동 선택 실패", "오류");
+  } finally {
+    autoPicking.value = false;
+  }
+}
 
 // 발송 all — fire every picked photo across the whole filtered set
 const sending = ref(false);
@@ -212,10 +244,21 @@ const pickedTone = (n: number) =>
           <Search v-else class="h-4 w-4" />
         </button>
 
-        <div class="ml-auto flex items-center gap-3">
+        <div class="ml-auto flex items-center gap-2 flex-wrap">
           <span class="text-xs text-muted-foreground tabular-nums">
             {{ showingFrom }}–{{ showingTo }} / 총 {{ paged?.total ?? 0 }}명
           </span>
+          <button
+            type="button"
+            class="h-10 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
+            :disabled="autoPicking"
+            title="전 어르신 대상으로 이달 후보 중 3장 무작위 자동 예약"
+            @click="autoPickAll"
+          >
+            <Loader2 v-if="autoPicking" class="h-4 w-4 animate-spin" />
+            <Wand2 v-else class="h-4 w-4" />
+            자동 선택 3장
+          </button>
           <button
             type="button"
             class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"

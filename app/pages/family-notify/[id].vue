@@ -11,7 +11,7 @@
  */
 import {
   ArrowLeft, Send, Building2, CheckCircle2, Loader2, MessageSquare,
-  AlertCircle, Calendar,
+  AlertCircle, Calendar, Wand2,
 } from "@lucide/vue";
 
 const route  = useRoute();
@@ -57,26 +57,59 @@ const { data: picker, pending, error, refresh } = await useAsyncData(
 
 useHead({ title: () => `${picker.value?.resident_name ?? "어르신"} · 가족 알림` });
 
-const pickedCount = computed(() =>
-  (picker.value?.candidates ?? []).filter(
-    (c) => c.picked_for_month === month,
-  ).length,
-);
+// Reactive Set of picked photo IDs — survives data reshape and avoids
+// per-photo object mutation that Vue sometimes won't pick up across
+// re-renders (the bug the user hit where 발송 never activated).
+const pickedIds = ref<Set<string>>(new Set());
+watch(picker, (p) => {
+  pickedIds.value = new Set(
+    (p?.candidates ?? [])
+      .filter((c) => c.picked_for_month === month)
+      .map((c) => c.id),
+  );
+}, { immediate: true });
+
+const pickedCount = computed(() => pickedIds.value.size);
 
 const togglingId = ref<string | null>(null);
 async function togglePick(photo: PhotoCandidate) {
   if (togglingId.value) return;
   togglingId.value = photo.id;
+  const wasPicked = pickedIds.value.has(photo.id);
+  // Optimistic toggle for instant feedback.
+  const next = new Set(pickedIds.value);
+  if (wasPicked) next.delete(photo.id); else next.add(photo.id);
+  pickedIds.value = next;
   try {
-    const isPicked = photo.picked_for_month === month;
     await api.patch(`/v1/photos/${photo.id}/pick`, {
-      month: isPicked ? null : month,
+      month: wasPicked ? null : month,
     });
-    photo.picked_for_month = isPicked ? null : month;
   } catch (e: any) {
+    // Revert on failure.
+    const revert = new Set(pickedIds.value);
+    if (wasPicked) revert.add(photo.id); else revert.delete(photo.id);
+    pickedIds.value = revert;
     toast.error(e?.data?.message ?? "선택 실패", "오류");
   } finally {
     togglingId.value = null;
+  }
+}
+
+// 자동 선택 3장 — picks 3 random for this resident, server-side.
+const autoPicking = ref(false);
+async function autoPick3() {
+  if (autoPicking.value) return;
+  autoPicking.value = true;
+  try {
+    await api.post("/v1/photos/auto-pick", {
+      month, resident_id: residentId, count: 3,
+    });
+    toast.success("3장 자동 선택 완료");
+    await refresh();
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "자동 선택 실패", "오류");
+  } finally {
+    autoPicking.value = false;
   }
 }
 
@@ -140,7 +173,7 @@ function fmtTakenDate(iso: string) {
             <span>{{ month }} 발송분</span>
           </div>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 flex-wrap">
           <span
             class="inline-flex items-center gap-1 rounded-full px-3 py-1 text-sm font-semibold tabular-nums"
             :class="pickedCount >= MIN_PICK
@@ -152,6 +185,17 @@ function fmtTakenDate(iso: string) {
             <CheckCircle2 v-if="pickedCount >= MIN_PICK" class="h-3.5 w-3.5" />
             예약 {{ pickedCount }}장 / 최소 {{ MIN_PICK }}장
           </span>
+          <button
+            type="button"
+            class="h-10 px-3 rounded-lg border border-input bg-background text-sm inline-flex items-center gap-1.5 hover:bg-muted disabled:opacity-50"
+            :disabled="autoPicking"
+            title="이달 후보 중 3장을 무작위로 자동 예약"
+            @click="autoPick3"
+          >
+            <Loader2 v-if="autoPicking" class="h-4 w-4 animate-spin" />
+            <Wand2 v-else class="h-4 w-4" />
+            자동 선택 3장
+          </button>
           <button
             type="button"
             class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"
@@ -168,7 +212,7 @@ function fmtTakenDate(iso: string) {
       <!-- Prior-months toggle -->
       <label class="inline-flex items-center gap-2 mb-4 text-sm cursor-pointer">
         <input v-model="includePrior" type="checkbox" class="rounded border-input">
-        지난 5개월 사진도 보기 — 멋진 사진은 다시 보낼 수 있습니다 (이미 발송됨 표시).
+        지난 3개월 사진도 보기 — 멋진 사진은 다시 보낼 수 있습니다 (이미 발송됨 표시).
       </label>
 
       <!-- Loading skeleton -->
@@ -192,7 +236,7 @@ function fmtTakenDate(iso: string) {
           :key="p.id"
           type="button"
           class="group relative rounded-lg overflow-hidden border-2 transition-all aspect-[4/3] focus:outline-none focus:ring-4 focus:ring-primary/30"
-          :class="p.picked_for_month === month
+          :class="pickedIds.has(p.id)
             ? 'border-primary shadow-md ring-2 ring-primary/20'
             : 'border-transparent hover:border-input'"
           :disabled="togglingId === p.id"
@@ -201,7 +245,7 @@ function fmtTakenDate(iso: string) {
           <img :src="p.data_url" alt="사진 후보" class="w-full h-full object-cover" loading="lazy" />
 
           <div
-            v-if="p.picked_for_month === month"
+            v-if="pickedIds.has(p.id)"
             class="absolute inset-0 bg-primary/20 flex items-center justify-center"
           >
             <div class="h-10 w-10 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-lg">
