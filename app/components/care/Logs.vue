@@ -62,6 +62,7 @@ function applyFilters() {
   appliedQ.value = q.value.trim();
   page.value = 1;
 }
+watch(pageSize, () => { page.value = 1; });
 
 const { data: dashboard } = await useAsyncData("care-log-branches", () =>
   api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),

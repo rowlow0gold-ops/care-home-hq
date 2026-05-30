@@ -67,6 +67,7 @@ function applyFilters() {
   appliedYearMonth.value = filterYearMonth.value;
   page.value = 1;
 }
+watch(pageSize, () => { page.value = 1; });
 
 const { data: paged, pending, error, refresh } = await useAsyncData(
   "billing-runs-paged",

@@ -56,6 +56,7 @@ function applyFilters() {
   appliedStatus.value = statusFilter.value;
   page.value = 1;
 }
+watch(pageSize, () => { page.value = 1; });
 
 // Sort changes still reset to page 1 (they re-fetch immediately).
 watch([sortBy, sortDesc], () => { page.value = 1; });

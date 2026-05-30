@@ -77,7 +77,11 @@ const allRows = computed<ScheduleRow[]>(() =>
 );
 
 const filteredRows = computed(() =>
-  allRows.value.filter((r) => kindFilter.value === "all" || r.kind === kindFilter.value),
+  allRows.value
+    .filter((r) => kindFilter.value === "all" || r.kind === kindFilter.value)
+    // Sort by 발송 예정일 DESC — most recent / upcoming on top
+    .slice()
+    .sort((a, b) => b.scheduled_date.localeCompare(a.scheduled_date)),
 );
 
 const sendingId = ref<string | null>(null);

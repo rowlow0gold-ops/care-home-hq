@@ -113,6 +113,7 @@ const paged = computed(() => pagedData.value?.items ?? []);
 const totalCount = computed(() => pagedData.value?.total ?? 0);
 const totalPages = computed(() => Math.max(1, Math.ceil(totalCount.value / pageSize.value)));
 watch(totalPages, (n) => { if (page.value > n) page.value = n; });
+watch(pageSize, () => { page.value = 1; });
 const pageStart = computed(() =>
   totalCount.value === 0 ? 0 : (page.value - 1) * pageSize.value + 1,
 );

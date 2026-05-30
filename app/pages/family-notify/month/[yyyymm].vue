@@ -39,32 +39,37 @@ const month = route.params.yyyymm as string;
 useHead({ title: () => `${month} 정기 발송 · 가족 알림` });
 
 const branch = ref<string>("");
+const has    = ref<string>("");
 const q      = ref<string>("");
 const appliedBranch = ref(branch.value);
+const appliedHas    = ref(has.value);
 const appliedQ      = ref(q.value);
 const page     = ref(1);
 const pageSize = ref(25);
 
 function applyFilters() {
   appliedBranch.value = branch.value;
+  appliedHas.value    = has.value;
   appliedQ.value      = q.value.trim();
   page.value = 1;
 }
+watch(pageSize, () => { page.value = 1; });
 
 const { data: dashboard } = await useAsyncData("fam-branches-month", () =>
   api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
 );
 
 const { data: paged, pending, error, refresh } = await useAsyncData(
-  () => `family-month-${month}-${appliedBranch.value}-${appliedQ.value}-${page.value}-${pageSize.value}`,
+  () => `family-month-${month}-${appliedBranch.value}-${appliedHas.value}-${appliedQ.value}-${page.value}-${pageSize.value}`,
   () => api.get<PickerPagedResponse>("/v1/photos/picker/paged", {
     month,
     branch_id: appliedBranch.value || undefined,
     q:         appliedQ.value || undefined,
+    status:    appliedHas.value || undefined,
     page:      page.value,
     page_size: pageSize.value,
   }),
-  { watch: [appliedBranch, appliedQ, page, pageSize] },
+  { watch: [appliedBranch, appliedHas, appliedQ, page, pageSize] },
 );
 
 const totalPages = computed(() =>
@@ -142,6 +147,11 @@ async function sendBatchNow() {
           <optgroup label="위성센터 (Satellite)">
             <option v-for="b in (dashboard?.branches ?? []).filter((x) => x.branch_type === 'satellite')" :key="b.id" :value="b.id">{{ b.name }}</option>
           </optgroup>
+        </select>
+        <select v-model="has" class="h-10 w-32 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15">
+          <option value="">사진 전체</option>
+          <option value="has_photos">사진 있음</option>
+          <option value="no_photos">사진 없음</option>
         </select>
         <button
           type="button" @click="applyFilters" :disabled="pending"

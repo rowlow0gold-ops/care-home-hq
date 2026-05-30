@@ -56,6 +56,7 @@ function applyFilters() {
   appliedSearch.value = search.value.trim();
   page.value = 1;
 }
+watch(pageSize, () => { page.value = 1; });
 
 const { data: dashboard } = await useAsyncData("med-branches", () =>
   api.get<{ branches: Branch[] }>("/v1/dashboard/summary"),
