@@ -118,6 +118,32 @@ async function sendNow(row: ScheduleRow) {
   }
 }
 
+// ─── 정기 추가 (manual — cron auto-creation TBD) ──────────────────────────
+// HQ can manually queue a 정기 batch for a given SEND month. The batch
+// sends photos from the previous calendar month.
+const regOpen = ref(false);
+const regNow  = new Date();
+const regEvent = reactive({
+  year:  regNow.getFullYear(),
+  month: regNow.getMonth() + 1,
+});
+const creatingReg = ref(false);
+async function createRegular() {
+  if (creatingReg.value) return;
+  const ym = `${regEvent.year}-${String(regEvent.month).padStart(2, "0")}`;
+  creatingReg.value = true;
+  try {
+    await api.post("/v1/events", { kind: "regular", year_month: ym });
+    toast.success(`${regEvent.year}년 ${regEvent.month}월 정기 추가됨`);
+    regOpen.value = false;
+    await refreshEvents();
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "추가 실패", "오류");
+  } finally {
+    creatingReg.value = false;
+  }
+}
+
 // ─── 비정기 추가 ───────────────────────────────────────────────────────────
 // 비정기 events have a tag — caregivers see this tag in the tablet upload
 // list, and photos tagged with it become part of this event's batch.
@@ -218,14 +244,24 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
         <Send class="h-7 w-7 text-primary" />
         가족 알림 스케쥴러
       </h1>
-      <button
-        type="button"
-        class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90"
-        @click="newOpen = true"
-      >
-        <Plus class="h-4 w-4" />
-        비정기 추가
-      </button>
+      <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="h-10 px-3 rounded-lg border border-input bg-background text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-muted"
+          @click="regOpen = true"
+        >
+          <Plus class="h-4 w-4" />
+          정기 추가
+        </button>
+        <button
+          type="button"
+          class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90"
+          @click="newOpen = true"
+        >
+          <Plus class="h-4 w-4" />
+          비정기 추가
+        </button>
+      </div>
     </header>
 
     <!-- Kind filter pills -->
@@ -357,6 +393,70 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
         </div>
       </div>
     </div>
+
+    <!-- 정기 추가 modal -->
+    <Teleport to="body">
+      <div
+        v-if="regOpen"
+        class="fixed inset-0 z-[110] bg-foreground/40 backdrop-blur-sm flex items-center justify-center p-4"
+        @click.self="regOpen = false"
+      >
+        <div class="bg-card text-foreground rounded-xl shadow-2xl border max-w-md w-full p-5">
+          <div class="flex items-start gap-3 mb-4">
+            <div class="h-10 w-10 rounded-full flex items-center justify-center bg-primary/10 text-primary">
+              <Calendar class="h-5 w-5" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <h2 class="text-base font-semibold">정기 추가</h2>
+              <p class="text-xs text-muted-foreground mt-0.5">선택한 발송월의 전월 사진을 모아 가족에게 전송합니다.</p>
+            </div>
+            <button
+              type="button"
+              class="h-8 w-8 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"
+              @click="regOpen = false"
+            >
+              <X class="h-4 w-4" />
+            </button>
+          </div>
+          <form class="space-y-4" @submit.prevent="createRegular">
+            <FieldRow label="발송월" required>
+              <div class="flex items-center gap-2">
+                <select
+                  v-model.number="regEvent.year"
+                  class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="y in yearOpts" :key="y" :value="y">{{ y }}년</option>
+                </select>
+                <select
+                  v-model.number="regEvent.month"
+                  class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="m in monthOpts" :key="m" :value="m">{{ m }}월</option>
+                </select>
+              </div>
+            </FieldRow>
+            <div class="flex items-center justify-end gap-2 pt-2 border-t">
+              <button
+                type="button"
+                class="h-10 px-4 rounded-lg border border-input bg-background text-sm hover:bg-muted"
+                :disabled="creatingReg"
+                @click="regOpen = false"
+              >
+                취소
+              </button>
+              <button
+                type="submit"
+                class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-60"
+                :disabled="creatingReg"
+              >
+                <Loader2 v-if="creatingReg" class="h-4 w-4 animate-spin" />
+                추가
+              </button>
+            </div>
+          </form>
+        </div>
+      </div>
+    </Teleport>
 
     <!-- 비정기 추가 modal -->
     <Teleport to="body">

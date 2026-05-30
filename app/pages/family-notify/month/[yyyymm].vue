@@ -35,8 +35,17 @@ const router = useRouter();
 const api    = useApi();
 const toast  = useToast();
 
+// URL month = SEND month (e.g. '2026-06' → 2026년 6월 정기 fires 2026-06-01).
+// Photo month = SEND month − 1 (the actual taken_at months we display).
 const month = route.params.yyyymm as string;
-useHead({ title: () => `${month} 정기 발송 · 가족 알림` });
+const photoMonth = (() => {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, (m ?? 1) - 2, 1); // m-2 because Date month is 0-indexed
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+})();
+const sendYear  = Number(month.split("-")[0]);
+const sendMonth = Number(month.split("-")[1]);
+useHead({ title: () => `${sendYear}년 ${sendMonth}월 정기 · 가족 알림` });
 
 const branch = ref<string>("");
 const has    = ref<string>("");
@@ -60,9 +69,9 @@ const { data: dashboard } = await useAsyncData("fam-branches-month", () =>
 );
 
 const { data: paged, pending, error, refresh } = await useAsyncData(
-  () => `family-month-${month}-${appliedBranch.value}-${appliedHas.value}-${appliedQ.value}-${page.value}-${pageSize.value}`,
+  () => `family-month-${photoMonth}-${appliedBranch.value}-${appliedHas.value}-${appliedQ.value}-${page.value}-${pageSize.value}`,
   () => api.get<PickerPagedResponse>("/v1/photos/picker/paged", {
-    month,
+    month:     photoMonth,
     branch_id: appliedBranch.value || undefined,
     q:         appliedQ.value || undefined,
     status:    appliedHas.value || undefined,
@@ -87,11 +96,11 @@ async function sendBatchNow() {
   if (sending.value) return;
   const n = paged.value?.total_picked ?? 0;
   if (n === 0) { toast.error("발송할 사진이 없습니다"); return; }
-  if (!confirm(`${month} 모든 사진 ${n}건을 가족 Telegram으로 즉시 발송합니다.`)) return;
+  if (!confirm(`${sendYear}년 ${sendMonth}월 정기 — ${photoMonth} 사진 ${n}건을 가족 Telegram으로 즉시 발송합니다.`)) return;
   sending.value = true;
   try {
     const r = await api.post<{ queued: number }>("/v1/photos/send-batch", {
-      month, branch_id: appliedBranch.value || undefined,
+      month: photoMonth, branch_id: appliedBranch.value || undefined,
     });
     toast.success(`${r.queued}건 발송 요청 완료`);
     await refresh();
@@ -114,7 +123,12 @@ async function sendBatchNow() {
     </NuxtLink>
 
     <header class="mb-6 flex items-center justify-between gap-4 flex-wrap">
-      <h1 class="text-2xl font-bold tracking-tight">{{ month }} 정기 발송</h1>
+      <div>
+        <h1 class="text-2xl font-bold tracking-tight">{{ sendYear }}년 {{ sendMonth }}월 정기</h1>
+        <p class="text-xs text-muted-foreground mt-0.5 tabular-nums">
+          {{ photoMonth }} 사진 · {{ month }} 발송
+        </p>
+      </div>
       <button
         type="button"
         class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"
