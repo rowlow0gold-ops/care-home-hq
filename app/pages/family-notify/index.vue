@@ -20,6 +20,7 @@ interface FamilyEvent {
   name:           string;
   kind:           "regular" | "custom";
   year_month:     string | null;
+  tag:            string | null;
   scheduled_date: string;
   status:         "scheduled" | "sent" | "cancelled";
   created_at:     string;
@@ -68,10 +69,10 @@ const allRows = computed<ScheduleRow[]>(() =>
     goto: e.kind === "regular" && e.year_month
       ? `/family-notify/month/${e.year_month}`
       : `/family-notify/event/${e.id}`,
-    sendable: e.status === "scheduled" && e.picked_count > 0,
-    send_endpoint: e.kind === "regular" && e.year_month
-      ? () => api.post("/v1/photos/send-batch", { month: e.year_month })
-      : () => api.post(`/v1/photos/send-event/${e.id}`, {}),
+    // 정기 fires automatically on its scheduled date — no manual send.
+    // 비정기 needs HQ to push 발송 (cron auto-fire is a follow-up).
+    sendable: e.kind === "custom" && e.status === "scheduled" && e.picked_count > 0,
+    send_endpoint: () => api.post(`/v1/photos/send-event/${e.id}`, {}),
   })),
 );
 
@@ -96,16 +97,22 @@ async function sendNow(row: ScheduleRow) {
 }
 
 // ─── 비정기 추가 ───────────────────────────────────────────────────────────
-// Same year+month+day select pattern as 정기 추가 (consistency requested).
-// Defaults to "next month, day 1". Inline the date math so this block is
-// independent of the 정기 section's `now2` below (avoid TDZ).
+// 비정기 events have a tag — caregivers see this tag in the tablet upload
+// list, and photos tagged with it become part of this event's batch.
+// Defaults to "next month, day 1". Inline the date math (avoid TDZ).
 const _customNext = (() => {
   const d = new Date();
   return new Date(d.getFullYear(), d.getMonth() + 1, 1);
 })();
+const yearOpts  = (() => {
+  const y = new Date().getFullYear();
+  return [y - 1, y, y + 1, y + 2];
+})();
+const monthOpts = Array.from({ length: 12 }, (_, i) => i + 1);
 const newOpen = ref(false);
 const newEvent = reactive({
   name: "",
+  tag:  "",
   year:  _customNext.getFullYear(),
   month: _customNext.getMonth() + 1,
   day:   1,
@@ -122,16 +129,21 @@ const creating = ref(false);
 async function createEvent() {
   if (creating.value) return;
   if (!newEvent.name.trim()) { toast.error("이벤트 이름을 입력해 주세요"); return; }
+  const tagTrimmed = newEvent.tag.trim();
+  if (!tagTrimmed) { toast.error("이벤트 태그를 입력해 주세요"); return; }
+  if (tagTrimmed === "regular") { toast.error("'regular'은 사용할 수 없는 태그입니다"); return; }
   const d = `${newEvent.year}-${String(newEvent.month).padStart(2, "0")}-${String(newEvent.day).padStart(2, "0")}`;
   creating.value = true;
   try {
     await api.post("/v1/events", {
       kind: "custom",
       name: newEvent.name.trim(),
+      tag:  tagTrimmed,
       scheduled_date: d,
     });
     toast.success("이벤트가 추가되었습니다");
     newEvent.name = "";
+    newEvent.tag  = "";
     newOpen.value = false;
     await refreshEvents();
   } catch (e: any) {
@@ -141,59 +153,8 @@ async function createEvent() {
   }
 }
 
-// ─── 정기 추가 — two independent date pickers:
-//   대상 월  = which month's photos to send (PAST — defaults to last month)
-//   발송 예정일 = when to fire it (FUTURE — defaults to 1st of NEXT month)
-//
-// HQ may want to send March photos on May 8 (Parents' Day), etc., so the
-// two dates are intentionally not coupled.
-const now2 = new Date();
-const lastMonth   = new Date(now2.getFullYear(), now2.getMonth() - 1, 1);
-const nextMonth   = new Date(now2.getFullYear(), now2.getMonth() + 1, 1);
-
-const regOpen = ref(false);
-const regForm = reactive({
-  // 대상 월
-  src_year:  lastMonth.getFullYear(),
-  src_month: lastMonth.getMonth() + 1,
-  // 발송 예정일
-  send_year:  nextMonth.getFullYear(),
-  send_month: nextMonth.getMonth() + 1,
-  send_day:   1,
-});
-
-const yearOpts  = [now2.getFullYear() - 1, now2.getFullYear(), now2.getFullYear() + 1, now2.getFullYear() + 2];
-const monthOpts = Array.from({ length: 12 }, (_, i) => i + 1);
-const sendDayOpts = computed(() => {
-  const max = new Date(regForm.send_year, regForm.send_month, 0).getDate();
-  return Array.from({ length: max }, (_, i) => i + 1);
-});
-// Keep selected day in range if user changes year/month to a shorter one.
-watch(sendDayOpts, (opts) => {
-  if (regForm.send_day > opts.length) regForm.send_day = opts.length;
-});
-
-const creatingReg = ref(false);
-async function createRegular() {
-  if (creatingReg.value) return;
-  const ym = `${regForm.src_year}-${String(regForm.src_month).padStart(2, "0")}`;
-  const d  = `${regForm.send_year}-${String(regForm.send_month).padStart(2, "0")}-${String(regForm.send_day).padStart(2, "0")}`;
-  creatingReg.value = true;
-  try {
-    await api.post<FamilyEvent>("/v1/events", {
-      kind: "regular",
-      year_month: ym,
-      scheduled_date: d,
-    });
-    toast.success(`${regForm.src_year}년 ${regForm.src_month}월 정기 발송이 ${d}에 예약되었습니다`);
-    regOpen.value = false;
-    await refreshEvents();
-  } catch (e: any) {
-    toast.error(e?.data?.message ?? "추가 실패", "오류");
-  } finally {
-    creatingReg.value = false;
-  }
-}
+// 정기 batches are auto-created on the 1st of each month (worker cron, TBD).
+// HQ doesn't add them manually anymore.
 async function cancelEvent(row: ScheduleRow) {
   if (!confirm(`'${row.name}' 이벤트를 취소합니다. 진행할까요?`)) return;
   try {
@@ -235,24 +196,14 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
         <Send class="h-7 w-7 text-primary" />
         가족 알림 스케쥴러
       </h1>
-      <div class="flex items-center gap-2">
-        <button
-          type="button"
-          class="h-10 px-3 rounded-lg border border-input bg-background text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-muted"
-          @click="regOpen = true"
-        >
-          <Plus class="h-4 w-4" />
-          정기 추가
-        </button>
-        <button
-          type="button"
-          class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90"
-          @click="newOpen = true"
-        >
-          <Plus class="h-4 w-4" />
-          비정기 추가
-        </button>
-      </div>
+      <button
+        type="button"
+        class="h-10 px-3 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90"
+        @click="newOpen = true"
+      >
+        <Plus class="h-4 w-4" />
+        비정기 추가
+      </button>
     </header>
 
     <!-- Kind filter pills -->
@@ -368,91 +319,6 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
       </table>
     </div>
 
-    <!-- 정기 추가 modal — just pick a month -->
-    <Teleport to="body">
-      <div
-        v-if="regOpen"
-        class="fixed inset-0 z-[110] bg-foreground/40 backdrop-blur-sm flex items-center justify-center p-4"
-        @click.self="regOpen = false"
-      >
-        <div class="bg-card text-foreground rounded-xl shadow-2xl border max-w-md w-full p-5">
-          <div class="flex items-start gap-3 mb-4">
-            <div class="h-10 w-10 rounded-full flex items-center justify-center bg-primary/10 text-primary">
-              <Calendar class="h-5 w-5" />
-            </div>
-            <div class="flex-1 min-w-0">
-              <h2 class="text-base font-semibold">정기 발송 추가</h2>
-            </div>
-            <button
-              type="button"
-              class="h-8 w-8 rounded-md hover:bg-muted flex items-center justify-center text-muted-foreground"
-              @click="regOpen = false"
-            >
-              <X class="h-4 w-4" />
-            </button>
-          </div>
-          <form class="space-y-4" @submit.prevent="createRegular">
-            <FieldRow label="대상 월" required hint="이 달의 모든 사진이 자동 포함됩니다.">
-              <div class="flex items-center gap-2">
-                <select
-                  v-model.number="regForm.src_year"
-                  class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-                >
-                  <option v-for="y in yearOpts" :key="y" :value="y">{{ y }}년</option>
-                </select>
-                <select
-                  v-model.number="regForm.src_month"
-                  class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-                >
-                  <option v-for="m in monthOpts" :key="m" :value="m">{{ m }}월</option>
-                </select>
-              </div>
-            </FieldRow>
-            <FieldRow label="발송 예정일" required>
-              <div class="flex items-center gap-2">
-                <select
-                  v-model.number="regForm.send_year"
-                  class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-                >
-                  <option v-for="y in yearOpts" :key="y" :value="y">{{ y }}년</option>
-                </select>
-                <select
-                  v-model.number="regForm.send_month"
-                  class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-                >
-                  <option v-for="m in monthOpts" :key="m" :value="m">{{ m }}월</option>
-                </select>
-                <select
-                  v-model.number="regForm.send_day"
-                  class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-                >
-                  <option v-for="d in sendDayOpts" :key="d" :value="d">{{ d }}일</option>
-                </select>
-              </div>
-            </FieldRow>
-            <div class="flex items-center justify-end gap-2 pt-2 border-t">
-              <button
-                type="button"
-                class="h-10 px-4 rounded-lg border border-input bg-background text-sm hover:bg-muted"
-                :disabled="creatingReg"
-                @click="regOpen = false"
-              >
-                취소
-              </button>
-              <button
-                type="submit"
-                class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-60"
-                :disabled="creatingReg"
-              >
-                <Loader2 v-if="creatingReg" class="h-4 w-4 animate-spin" />
-                추가
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </Teleport>
-
     <!-- 비정기 추가 modal -->
     <Teleport to="body">
       <div
@@ -483,6 +349,14 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
                 type="text"
                 placeholder="예: 어버이날 2026"
                 class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+              >
+            </FieldRow>
+            <FieldRow label="이벤트 태그" required hint="태블릿 캐어워커가 사진 업로드 시 선택하는 태그 (영문/숫자, 공백없이 — 예: parents_day_2026)">
+              <input
+                v-model="newEvent.tag"
+                type="text"
+                placeholder="예: parents_day_2026"
+                class="w-full h-10 px-3 rounded-lg border border-input bg-background text-sm font-mono focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
               >
             </FieldRow>
             <FieldRow label="발송 예정일" required>
