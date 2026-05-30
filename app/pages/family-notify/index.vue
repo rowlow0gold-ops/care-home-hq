@@ -122,32 +122,43 @@ async function createEvent() {
   }
 }
 
-// ─── 정기 추가 — schedule a monthly send.
-// Defaults to LAST month (the "what just finished" review the user
-// expects). HQ picks year + month + day; the batch row is created and
-// auto-includes every pending photo for that month. Send fires later
-// (cron on the scheduled_date, or manually via 발송 on the row).
+// ─── 정기 추가 — two independent date pickers:
+//   대상 월  = which month's photos to send (PAST — defaults to last month)
+//   발송 예정일 = when to fire it (FUTURE — defaults to 1st of NEXT month)
+//
+// HQ may want to send March photos on May 8 (Parents' Day), etc., so the
+// two dates are intentionally not coupled.
 const now2 = new Date();
-const lastMonthAnchor = new Date(now2.getFullYear(), now2.getMonth() - 1, 1);
+const lastMonth   = new Date(now2.getFullYear(), now2.getMonth() - 1, 1);
+const nextMonth   = new Date(now2.getFullYear(), now2.getMonth() + 1, 1);
+
 const regOpen = ref(false);
 const regForm = reactive({
-  year:  lastMonthAnchor.getFullYear(),
-  month: lastMonthAnchor.getMonth() + 1,
-  day:   1,
+  // 대상 월
+  src_year:  lastMonth.getFullYear(),
+  src_month: lastMonth.getMonth() + 1,
+  // 발송 예정일
+  send_year:  nextMonth.getFullYear(),
+  send_month: nextMonth.getMonth() + 1,
+  send_day:   1,
 });
-const regYearOptions  = [now2.getFullYear() - 1, now2.getFullYear(), now2.getFullYear() + 1];
-const regMonthOptions = Array.from({ length: 12 }, (_, i) => i + 1);
-const regDayOptions   = computed(() => {
-  // Days valid for the selected year+month.
-  const max = new Date(regForm.year, regForm.month, 0).getDate();
+
+const yearOpts  = [now2.getFullYear() - 1, now2.getFullYear(), now2.getFullYear() + 1, now2.getFullYear() + 2];
+const monthOpts = Array.from({ length: 12 }, (_, i) => i + 1);
+const sendDayOpts = computed(() => {
+  const max = new Date(regForm.send_year, regForm.send_month, 0).getDate();
   return Array.from({ length: max }, (_, i) => i + 1);
+});
+// Keep selected day in range if user changes year/month to a shorter one.
+watch(sendDayOpts, (opts) => {
+  if (regForm.send_day > opts.length) regForm.send_day = opts.length;
 });
 
 const creatingReg = ref(false);
 async function createRegular() {
   if (creatingReg.value) return;
-  const ym = `${regForm.year}-${String(regForm.month).padStart(2, "0")}`;
-  const d  = `${ym}-${String(regForm.day).padStart(2, "0")}`;
+  const ym = `${regForm.src_year}-${String(regForm.src_month).padStart(2, "0")}`;
+  const d  = `${regForm.send_year}-${String(regForm.send_month).padStart(2, "0")}-${String(regForm.send_day).padStart(2, "0")}`;
   creatingReg.value = true;
   try {
     await api.post<FamilyEvent>("/v1/events", {
@@ -155,7 +166,7 @@ async function createRegular() {
       year_month: ym,
       scheduled_date: d,
     });
-    toast.success(`${regForm.year}년 ${regForm.month}월 정기 발송이 추가되었습니다`);
+    toast.success(`${regForm.src_year}년 ${regForm.src_month}월 정기 발송이 ${d}에 예약되었습니다`);
     regOpen.value = false;
     await refreshEvents();
   } catch (e: any) {
@@ -362,29 +373,43 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
             </button>
           </div>
           <form class="space-y-4" @submit.prevent="createRegular">
-            <FieldRow label="대상 월" required hint="이달의 모든 사진이 자동 포함됩니다.">
+            <FieldRow label="대상 월" required hint="이 달의 모든 사진이 자동 포함됩니다.">
               <div class="flex items-center gap-2">
                 <select
-                  v-model.number="regForm.year"
+                  v-model.number="regForm.src_year"
                   class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
                 >
-                  <option v-for="y in regYearOptions" :key="y" :value="y">{{ y }}년</option>
+                  <option v-for="y in yearOpts" :key="y" :value="y">{{ y }}년</option>
                 </select>
                 <select
-                  v-model.number="regForm.month"
+                  v-model.number="regForm.src_month"
                   class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
                 >
-                  <option v-for="m in regMonthOptions" :key="m" :value="m">{{ m }}월</option>
+                  <option v-for="m in monthOpts" :key="m" :value="m">{{ m }}월</option>
                 </select>
               </div>
             </FieldRow>
             <FieldRow label="발송 예정일" required>
-              <select
-                v-model.number="regForm.day"
-                class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
-              >
-                <option v-for="d in regDayOptions" :key="d" :value="d">{{ d }}일</option>
-              </select>
+              <div class="flex items-center gap-2">
+                <select
+                  v-model.number="regForm.send_year"
+                  class="h-10 w-28 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="y in yearOpts" :key="y" :value="y">{{ y }}년</option>
+                </select>
+                <select
+                  v-model.number="regForm.send_month"
+                  class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="m in monthOpts" :key="m" :value="m">{{ m }}월</option>
+                </select>
+                <select
+                  v-model.number="regForm.send_day"
+                  class="h-10 w-24 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary focus:ring-4 focus:ring-primary/15"
+                >
+                  <option v-for="d in sendDayOpts" :key="d" :value="d">{{ d }}일</option>
+                </select>
+              </div>
             </FieldRow>
             <div class="flex items-center justify-end gap-2 pt-2 border-t">
               <button
