@@ -14,11 +14,13 @@ import {
 const { me, logout } = useAuth();
 const route = useRoute();
 
-// 케어 관리 hosts the 어르신 / 케어 기록 / 투약 tabs in one place.
+// Dashboard + 케어 관리 are MANAGER tools. Caregivers / nurses get bounced
+// to /tablet/* by the auth middleware and never see this nav, so we hide
+// the items they'd 403 on. minRole 3 = branch_manager and above only.
 const nav = computed(() => [
-  { to: "/", label: "대시보드", icon: LayoutDashboard, minRole: 1 },
+  { to: "/", label: "대시보드", icon: LayoutDashboard, minRole: 3 },
   { to: "/staff", label: "직원 관리", icon: UsersRound, minRole: 3 },
-  { to: "/care", label: "케어 관리", icon: HeartPulse, minRole: 1 },
+  { to: "/care", label: "케어 관리", icon: HeartPulse, minRole: 3 },
   { to: "/org", label: "조직도", icon: Network, minRole: 2 },
   { to: "/reports", label: "보고서", icon: FileBarChart, minRole: 3 },
   // 가족 알림 — HQ-only. 본부에서 사진 검수 후 Telegram 발송.

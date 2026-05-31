@@ -32,4 +32,11 @@ export default defineNuxtRouteMiddleware(async (to) => {
       query: { redirect: to.fullPath },
     });
   }
+
+  // Hard rule: caregivers + nurses use the TABLET program inside the HQ
+  // site. They never see Dashboard / 케어 관리 / etc. If one lands here
+  // (bookmark, deep link, etc.), bounce them straight to /tablet.
+  if (me.value.role === "caregiver" || me.value.role === "nurse") {
+    return navigateTo("/tablet");
+  }
 });
