@@ -10,7 +10,7 @@
  */
 import {
   Send, Calendar, CalendarHeart, Plus, X, Loader2,
-  ChevronRight, Trash2, CheckCircle2, ChevronLeft,
+  ChevronRight, Trash2, CheckCircle2, ChevronLeft, FlaskConical,
 } from "@lucide/vue";
 
 useHead({ title: "가족 알림 · 케어닥 HQ" });
@@ -70,7 +70,9 @@ interface ScheduleRow {
   resident_count: number;
   goto:           string;
   sendable:       boolean;
+  testable:       boolean;
   send_endpoint:  () => Promise<{ queued: number }>;
+  test_endpoint:  () => Promise<{ queued: number }>;
 }
 
 const filteredRows = computed<ScheduleRow[]>(() =>
@@ -87,7 +89,12 @@ const filteredRows = computed<ScheduleRow[]>(() =>
       ? `/family-notify/month/${e.year_month}`
       : `/family-notify/event/${e.id}`,
     sendable: e.kind === "custom" && e.status === "scheduled" && e.picked_count > 0,
+    // Any batch with at least one photo can be test-fired to the admin's
+    // Telegram, regardless of status — useful for verifying the pipeline
+    // even after a 정기 has already been sent.
+    testable: e.picked_count > 0,
     send_endpoint: () => api.post(`/v1/photos/send-event/${e.id}`, {}),
+    test_endpoint: () => api.post(`/v1/photos/test-event/${e.id}`, {}),
   })),
 );
 
@@ -115,6 +122,25 @@ async function sendNow(row: ScheduleRow) {
     toast.error(e?.data?.message ?? "발송 실패", "오류");
   } finally {
     sendingId.value = null;
+  }
+}
+
+// Test-fire one photo to the admin's Telegram (TELEGRAM_DEFAULT_CHAT_ID).
+// Doesn't touch real recipients or change the batch state.
+const testingId = ref<string | null>(null);
+async function testNow(row: ScheduleRow) {
+  if (testingId.value) return;
+  testingId.value = row.id;
+  try {
+    await row.test_endpoint();
+    toast.success(
+      `'${row.name}' 테스트 메시지를 큐에 넣었습니다. 잠시 후 관리자 Telegram을 확인하세요.`,
+      "🧪 테스트 전송됨",
+    );
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "테스트 실패", "오류");
+  } finally {
+    testingId.value = null;
   }
 }
 
@@ -316,6 +342,18 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
             </td>
             <td class="py-3 px-6 text-right">
               <div class="inline-flex items-center gap-1.5" @click.stop>
+                <button
+                  v-if="row.testable"
+                  type="button"
+                  class="h-8 px-2.5 rounded-md border border-amber-400/60 text-amber-700 dark:text-amber-300 text-xs font-semibold inline-flex items-center gap-1 hover:bg-amber-50 dark:hover:bg-amber-900/30 disabled:opacity-50"
+                  :disabled="testingId === row.id"
+                  :title="`'${row.name}' 1장을 관리자 Telegram으로 테스트 발송 — MQ 파이프라인 검증`"
+                  @click="testNow(row)"
+                >
+                  <Loader2 v-if="testingId === row.id" class="h-3 w-3 animate-spin" />
+                  <FlaskConical v-else class="h-3 w-3" />
+                  테스트
+                </button>
                 <button
                   v-if="row.sendable"
                   type="button"
