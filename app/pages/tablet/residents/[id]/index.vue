@@ -9,13 +9,22 @@ import { HeartPulse, ClipboardCheck, Pill, Camera, MapPin } from "@lucide/vue";
 
 definePageMeta({ layout: "tablet" });
 
+// Backend /v1/residents/:id returns the resident object FLAT with a
+// contacts[] property on it — not wrapped in { resident, contacts }.
 interface ResidentDetail {
-  resident: {
-    id: string; full_name: string; sex: "male" | "female";
-    birth_date: string | null; care_grade: string | null;
-    room_number: string | null; admitted_on: string | null;
-  };
-  contacts: Array<{ id: string; full_name: string; relationship: string | null; phone: string | null }>;
+  id: string;
+  full_name: string;
+  sex: "male" | "female";
+  birth_date: string | null;
+  care_grade: string | null;
+  room_number: string | null;
+  admitted_on: string | null;
+  contacts: Array<{
+    id: string;
+    full_name: string | null;
+    relation: string | null;
+    phone: string | null;
+  }>;
 }
 
 const route  = useRoute();
@@ -28,7 +37,7 @@ const { data, pending } = await useAsyncData(`tablet-resident-${id.value}`, () =
   api.get<ResidentDetail>(`/v1/residents/${id.value}`),
 );
 
-useHead({ title: () => `${data.value?.resident.full_name ?? ""} · 케어닥` });
+useHead({ title: () => `${data.value?.full_name ?? ""} · 케어닥` });
 
 const tiles = computed(() => [
   { to: `/tablet/residents/${id.value}/vitals`,      icon: HeartPulse,     label: "활력 측정", tone: "bg-rose-500" },
@@ -55,19 +64,19 @@ function ageOf(birth: string | null): number | null {
       <div class="rounded-2xl border bg-card p-5 mb-5 flex items-center gap-4">
         <div
           class="h-20 w-20 rounded-full flex items-center justify-center text-2xl font-bold shrink-0"
-          :class="data.resident.sex === 'female'
+          :class="data.sex === 'female'
             ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-200'
             : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-200'"
         >
-          {{ data.resident.full_name.charAt(0) }}
+          {{ data.full_name.charAt(0) }}
         </div>
         <div class="flex-1 min-w-0">
-          <div class="text-2xl font-bold">{{ data.resident.full_name }}</div>
+          <div class="text-2xl font-bold">{{ data.full_name }}</div>
           <div class="text-sm text-muted-foreground mt-1 flex flex-wrap gap-2">
-            <span v-if="ageOf(data.resident.birth_date) !== null">만 {{ ageOf(data.resident.birth_date) }}세</span>
-            <span v-if="data.resident.care_grade">{{ data.resident.care_grade }}</span>
-            <span v-if="data.resident.room_number" class="inline-flex items-center gap-0.5">
-              <MapPin class="h-3 w-3" />{{ data.resident.room_number }}호
+            <span v-if="ageOf(data.birth_date) !== null">만 {{ ageOf(data.birth_date) }}세</span>
+            <span v-if="data.care_grade">{{ data.care_grade }}</span>
+            <span v-if="data.room_number" class="inline-flex items-center gap-0.5">
+              <MapPin class="h-3 w-3" />{{ data.room_number }}호
             </span>
           </div>
         </div>
@@ -93,7 +102,7 @@ function ageOf(birth: string | null): number | null {
         <h3 class="text-sm font-semibold mb-2 text-muted-foreground">보호자</h3>
         <ul class="space-y-1.5 text-sm">
           <li v-for="c in data.contacts" :key="c.id" class="flex justify-between gap-2">
-            <span>{{ c.full_name }} <span class="text-muted-foreground">· {{ c.relationship ?? "—" }}</span></span>
+            <span>{{ c.full_name ?? "—" }} <span class="text-muted-foreground">· {{ c.relation ?? "—" }}</span></span>
             <a v-if="c.phone" :href="`tel:${c.phone}`" class="text-primary font-medium">{{ c.phone }}</a>
           </li>
         </ul>

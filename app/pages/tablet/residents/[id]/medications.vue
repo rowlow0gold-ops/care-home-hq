@@ -13,9 +13,9 @@ const toast = useToast();
 const id    = computed(() => String(route.params.id));
 
 const { data: detail } = await useAsyncData(`tablet-res-med-hdr-${id.value}`, () =>
-  api.get<{ resident: { full_name: string } }>(`/v1/residents/${id.value}`),
+  api.get<{ full_name: string }>(`/v1/residents/${id.value}`),
 );
-useHead({ title: () => `${detail.value?.resident.full_name ?? ""} 투약 · 케어닥` });
+useHead({ title: () => `${detail.value?.full_name ?? ""} 투약 · 케어닥` });
 
 interface Med {
   id: string;
@@ -52,7 +52,7 @@ async function record(med: Med, status: "given" | "refused" | "missed", notes?: 
 <template>
   <div class="max-w-3xl mx-auto px-5 py-6">
     <h1 class="text-2xl font-bold mb-1">투약 기록</h1>
-    <p class="text-sm text-muted-foreground mb-5">{{ detail?.resident.full_name }} 어르신</p>
+    <p class="text-sm text-muted-foreground mb-5">{{ detail?.full_name }} 어르신</p>
 
     <div v-if="pending" class="py-12 text-center text-muted-foreground">불러오는 중…</div>
     <div v-else-if="(meds?.length ?? 0) === 0" class="py-12 text-center text-muted-foreground">

@@ -20,9 +20,9 @@ interface Resident { id: string; full_name: string }
 const id = computed(() => String(route.params.id));
 
 const { data: detail } = await useAsyncData(`tablet-res-vitals-${id.value}`, () =>
-  api.get<{ resident: Resident }>(`/v1/residents/${id.value}`),
+  api.get<Resident>(`/v1/residents/${id.value}`),
 );
-useHead({ title: () => `${detail.value?.resident.full_name ?? ""} 활력 · 케어닥` });
+useHead({ title: () => `${detail.value?.full_name ?? ""} 활력 · 케어닥` });
 
 interface VitalKind {
   id: string; label: string; unit: string; icon: any;
@@ -91,7 +91,7 @@ async function save() {
 <template>
   <div class="max-w-3xl mx-auto px-5 py-6">
     <h1 class="text-2xl font-bold mb-1">활력 측정</h1>
-    <p class="text-sm text-muted-foreground mb-5">{{ detail?.resident.full_name }} 어르신</p>
+    <p class="text-sm text-muted-foreground mb-5">{{ detail?.full_name }} 어르신</p>
 
     <!-- Kind picker -->
     <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-6">

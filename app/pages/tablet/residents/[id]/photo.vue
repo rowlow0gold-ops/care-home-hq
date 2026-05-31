@@ -19,9 +19,9 @@ const toast = useToast();
 const id    = computed(() => String(route.params.id));
 
 const { data: detail } = await useAsyncData(`tablet-res-ph-${id.value}`, () =>
-  $fetch<{ resident: { full_name: string } }>(`/api/tablet/v1/residents/${id.value}`),
+  $fetch<{ full_name: string }>(`/api/tablet/v1/residents/${id.value}`),
 );
-useHead({ title: () => `${detail.value?.resident.full_name ?? ""} 사진 · 케어닥` });
+useHead({ title: () => `${detail.value?.full_name ?? ""} 사진 · 케어닥` });
 
 const file      = ref<File | null>(null);
 const preview   = ref<string | null>(null);
@@ -73,7 +73,7 @@ onBeforeUnmount(() => {
 <template>
   <div class="max-w-3xl mx-auto px-5 py-6">
     <h1 class="text-2xl font-bold mb-1">사진 업로드</h1>
-    <p class="text-sm text-muted-foreground mb-5">{{ detail?.resident.full_name }} 어르신</p>
+    <p class="text-sm text-muted-foreground mb-5">{{ detail?.full_name }} 어르신</p>
 
     <!-- Preview or capture button -->
     <div

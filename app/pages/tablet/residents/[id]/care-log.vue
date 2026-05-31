@@ -16,9 +16,9 @@ const toast = useToast();
 const id    = computed(() => String(route.params.id));
 
 const { data: detail } = await useAsyncData(`tablet-res-cl-${id.value}`, () =>
-  api.get<{ resident: { full_name: string } }>(`/v1/residents/${id.value}`),
+  api.get<{ full_name: string }>(`/v1/residents/${id.value}`),
 );
-useHead({ title: () => `${detail.value?.resident.full_name ?? ""} 케어 기록 · 케어닥` });
+useHead({ title: () => `${detail.value?.full_name ?? ""} 케어 기록 · 케어닥` });
 
 interface Category {
   id: string; label: string; icon: any; tone: string;
@@ -67,7 +67,7 @@ async function save() {
 <template>
   <div class="max-w-3xl mx-auto px-5 py-6">
     <h1 class="text-2xl font-bold mb-1">케어 기록</h1>
-    <p class="text-sm text-muted-foreground mb-5">{{ detail?.resident.full_name }} 어르신</p>
+    <p class="text-sm text-muted-foreground mb-5">{{ detail?.full_name }} 어르신</p>
 
     <div class="grid grid-cols-2 sm:grid-cols-3 gap-2.5 mb-5">
       <button
