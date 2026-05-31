@@ -69,15 +69,20 @@ function applyFilters() {
 }
 watch(pageSize, () => { page.value = 1; });
 
+// When props.eventId is set the modal is scoped to ONE event (per-row mode).
+// When null/empty, it's the 마스터 테스트 view showing ALL events' runs.
+const masterMode = computed(() => !props.eventId);
+
 const { data: paged, refresh: refreshHistory } = await useAsyncData<RunPage>(
-  () => `mq-runs-${fAppliedScenario.value}-${fAppliedStatus.value}-${page.value}-${pageSize.value}`,
+  () => `mq-runs-${props.eventId ?? "all"}-${fAppliedScenario.value}-${fAppliedStatus.value}-${page.value}-${pageSize.value}`,
   () => api.get<RunPage>("/v1/mq-test/runs", {
+    event_id:  props.eventId || undefined,
     scenario:  fAppliedScenario.value || undefined,
     status:    fAppliedStatus.value || undefined,
     page:      page.value,
     page_size: pageSize.value,
   }),
-  { watch: [fAppliedScenario, fAppliedStatus, page, pageSize], default: () => ({ items: [], total: 0, page: 1, page_size: 10 }), lazy: true },
+  { watch: [() => props.eventId, fAppliedScenario, fAppliedStatus, page, pageSize], default: () => ({ items: [], total: 0, page: 1, page_size: 10 }), lazy: true },
 );
 const history     = computed(() => paged.value?.items ?? []);
 const total       = computed(() => paged.value?.total ?? 0);
@@ -195,10 +200,18 @@ const anyRunning = computed(() =>
             <FlaskConical class="h-5 w-5" />
           </div>
           <div class="flex-1 min-w-0">
-            <h2 class="text-base font-semibold">🧪 MQ 파이프라인 테스트</h2>
+            <h2 class="text-base font-semibold">
+              <template v-if="masterMode">🧪 MQ 마스터 테스트</template>
+              <template v-else>🧪 MQ 파이프라인 테스트</template>
+            </h2>
             <p class="text-sm text-muted-foreground mt-0.5">
-              배치: <span class="font-medium text-foreground">{{ batchName }}</span>
-              · 관리자 Telegram으로만 전송 · 실제 가족에게 영향 없음
+              <template v-if="masterMode">
+                모든 이벤트의 테스트 현황 · 새 테스트는 각 이벤트의 [테스트] 버튼에서 실행
+              </template>
+              <template v-else>
+                배치: <span class="font-medium text-foreground">{{ batchName }}</span> 전용
+                · 관리자 Telegram으로만 전송
+              </template>
               <span v-if="anyRunning" class="ml-2 inline-flex items-center gap-1 text-blue-600 dark:text-blue-300">
                 <Loader2 class="h-3 w-3 animate-spin" />
                 실시간 갱신중
@@ -211,8 +224,8 @@ const anyRunning = computed(() =>
         </div>
 
         <div class="flex-1 overflow-y-auto p-5 space-y-5">
-          <!-- Scenario picker + execute -->
-          <div>
+          <!-- Scenario picker + execute (per-event mode only) -->
+          <div v-if="!masterMode">
             <h3 class="text-xs font-semibold text-muted-foreground uppercase mb-2">시나리오</h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
               <button

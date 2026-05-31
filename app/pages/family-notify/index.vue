@@ -10,7 +10,7 @@
  */
 import {
   Send, Calendar, CalendarHeart, Plus, X, Loader2,
-  ChevronRight, Trash2, CheckCircle2, ChevronLeft, FlaskConical,
+  ChevronRight, Trash2, CheckCircle2, ChevronLeft, FlaskConical, Search,
 } from "@lucide/vue";
 
 useHead({ title: "가족 알림 · 케어닥 HQ" });
@@ -40,22 +40,29 @@ const api    = useApi();
 const router = useRouter();
 const toast  = useToast();
 
-// ─── Filter: 종류 (kind) + server-side pagination ─────────────────────────
+// ─── Filter: 종류 (kind) + 상태 + 검색 + server-side pagination ───────────
 type Kind = "all" | "regular" | "custom";
 const kindFilter = ref<Kind>("all");
+const statusFilter = ref<string>("");          // ''|scheduled|sent|cancelled
+const q            = ref<string>("");
+const appliedQ     = ref<string>("");
 const page       = ref(1);
 const pageSize   = ref(25);
-watch(kindFilter, () => { page.value = 1; });
-watch(pageSize,   () => { page.value = 1; });
+function applyFilters() { appliedQ.value = q.value.trim(); page.value = 1; }
+watch(kindFilter,   () => { page.value = 1; });
+watch(statusFilter, () => { page.value = 1; });
+watch(pageSize,     () => { page.value = 1; });
 
 const { data: paged, pending: loadingBatches, refresh: refreshEvents } = await useAsyncData(
-  () => `scheduler-${kindFilter.value}-${page.value}-${pageSize.value}`,
+  () => `scheduler-${kindFilter.value}-${statusFilter.value}-${appliedQ.value}-${page.value}-${pageSize.value}`,
   () => api.get<EventPage>("/v1/events", {
     kind:      kindFilter.value === "all" ? undefined : kindFilter.value,
+    status:    statusFilter.value || undefined,
+    q:         appliedQ.value || undefined,
     page:      page.value,
     page_size: pageSize.value,
   }),
-  { watch: [kindFilter, page, pageSize] },
+  { watch: [kindFilter, statusFilter, appliedQ, page, pageSize] },
 );
 onActivated(refreshEvents);
 
@@ -133,6 +140,11 @@ const testBatchName = ref<string>("");
 function openTest(row: ScheduleRow) {
   testEventId.value   = row.id;
   testBatchName.value = row.name;
+  testOpen.value      = true;
+}
+function openMasterTest() {
+  testEventId.value   = null;
+  testBatchName.value = "전체 이벤트";
   testOpen.value      = true;
 }
 
@@ -237,6 +249,15 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
         가족 알림 스케쥴러
       </h1>
       <div class="flex items-center gap-2">
+        <button
+          type="button"
+          class="h-10 px-3 rounded-lg border border-amber-400/60 text-amber-700 dark:text-amber-300 text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+          title="모든 이벤트의 MQ 테스트 현황을 한눈에 봅니다"
+          @click="openMasterTest"
+        >
+          <FlaskConical class="h-4 w-4" />
+          마스터 테스트
+        </button>
         <NuxtLink
           to="/family-notify/schedule"
           class="h-10 px-3 rounded-lg border border-input bg-background text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-muted"
@@ -255,8 +276,8 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
       </div>
     </header>
 
-    <!-- Kind filter pills -->
-    <div class="flex items-center gap-2 mb-4">
+    <!-- Filter bar: kind pills + search + status -->
+    <div class="flex items-center gap-2 mb-4 flex-wrap">
       <button
         v-for="k in (['all','regular','custom'] as Kind[])"
         :key="k"
@@ -269,6 +290,30 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
       >
         {{ kindLabel[k] }}
       </button>
+
+      <div class="relative flex-1 min-w-[180px] max-w-xs">
+        <Search class="absolute left-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+        <input
+          v-model="q"
+          placeholder="이벤트 이름 / 태그 검색"
+          class="w-full h-8 pl-8 pr-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary focus:ring-2 focus:ring-primary/15"
+          @keyup.enter="applyFilters"
+        >
+      </div>
+      <select v-model="statusFilter" class="h-8 w-28 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary">
+        <option value="">전체 상태</option>
+        <option value="scheduled">예정</option>
+        <option value="sent">발송됨</option>
+        <option value="cancelled">취소</option>
+      </select>
+      <button
+        type="button" @click="applyFilters"
+        title="검색"
+        class="h-8 w-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center justify-center"
+      >
+        <Search class="h-3.5 w-3.5" />
+      </button>
+
       <span class="ml-auto text-xs text-muted-foreground tabular-nums">
         {{ showingFrom }}–{{ showingTo }} / 총 {{ total }}개 일정
       </span>
