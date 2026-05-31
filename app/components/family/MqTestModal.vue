@@ -37,6 +37,10 @@ interface MqRun {
   child_count:         number;
   /// TRUE iff at least one child succeeded cleanly. Drives 해결됨 badge.
   solved:              boolean;
+  /// ID the retry/abort buttons target. For roots, this is the LATEST
+  /// attempt's id (header shows latest's data, buttons act on it). For
+  /// children or no-retry rows, equals `id`.
+  display_id:          string;
 }
 
 const props = defineProps<{
@@ -206,7 +210,7 @@ async function retryFailedRow(run: MqRun) {
   }
   retryingId.value = run.id;
   try {
-    const newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/retry-failed`, {});
+    const newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.display_id}/retry-failed`, {});
     const tracked = (run.failed_photo_ids?.length ?? 0) > 0;
     toast.success(
       tracked
@@ -231,13 +235,16 @@ async function retryAllRow(run: MqRun) {
     toast.error("원본 이벤트가 없는 실행은 전체 재시도할 수 없습니다", "오류");
     return;
   }
+  // Buttons act on display_id (the latest attempt). Backend's INSERT
+  // flattens parent_run_id to the root so the new run becomes a sibling
+  // child of root, not a grandchild.
   retryingId.value = run.id;
   try {
-    const newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/retry-all`, {});
+    const newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.display_id}/retry-all`, {});
     toast.success(`전체 ${newRun.expected_count}건 재실행 (#${(run.child_count ?? 0) + 1})`, "🔁 전체 재시도");
     expandedRuns[run.id] = true;
-    await refreshHistory();          // bumps the parent's child_count
-    await ensureChildren(run.id, true); // refetches the children list
+    await refreshHistory();
+    await ensureChildren(run.id, true);
     startPolling();
   } catch (e: any) {
     toast.error(e?.data?.message ?? "전체 재시도 실패", "오류");
@@ -264,8 +271,11 @@ async function abortRow(run: MqRun) {
   if (!confirm(`정말 강제 종료하시겠습니까?\n진행중 ${run.expected_count - run.success_count - run.failure_count}건이 실패로 표시됩니다.`)) return;
   abortingId.value = run.id;
   try {
-    await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/abort`, {});
+    // Operates on the LATEST attempt (display_id), which is what the row header
+    // is actually showing.
+    await api.post<MqRun>(`/v1/mq-test/runs/${run.display_id}/abort`, {});
     await refreshHistory();
+    await ensureChildren(run.id, true);
     toast.success("강제 종료됨", "🛑");
   } catch (e: any) {
     toast.error(e?.data?.message ?? "강제 종료 실패", "오류");
@@ -301,34 +311,6 @@ async function toggleExpand(run: MqRun) {
   if (expandedRuns[run.id]) await ensureChildren(run.id);
 }
 
-// Retry called from inside a child row — backend still creates the new run
-// as a child of the clicked row, but for the UI we re-fetch BOTH lists so
-// the new attempt shows up. The new child has parent_run_id = c.id (the
-// clicked child), so it won't appear under the root's children list unless
-// we expand the child itself. We refetch the root for the simple case where
-// it's a sibling chain.
-async function retryFailedRowAsChild(child: MqRun, root: MqRun) {
-  if (retryingId.value) return;
-  if (child.failure_count === 0) {
-    toast.error("실패한 항목이 없습니다", "재시도 불가");
-    return;
-  }
-  retryingId.value = child.id;
-  try {
-    const newRun = await api.post<MqRun>(`/v1/mq-test/runs/${child.id}/retry-failed`, {});
-    toast.success(`#${child.id.slice(0, 4)} 의 실패 ${newRun.expected_count}건 재전송`, "🎯 실패만 재시도");
-    expandedRuns[root.id] = true;
-    expandedRuns[child.id] = true;
-    await refreshHistory();
-    await ensureChildren(root.id, true);
-    await ensureChildren(child.id, true);
-    startPolling();
-  } catch (e: any) {
-    toast.error(e?.data?.message ?? "실패만 재시도 실패", "오류");
-  } finally {
-    retryingId.value = null;
-  }
-}
 
 function scenarioLabel(id: string) {
   const hit = scenarios.find(s => s.id === id);
@@ -654,6 +636,9 @@ const anyRunning = computed(() =>
                       재시도 이력이 없습니다. 위 버튼으로 첫 재시도를 만들 수 있습니다.
                     </div>
                     <div v-else class="space-y-2">
+                      <!-- History is READ-ONLY. Children sorted DESC (newest at
+                           top); numbering is chronological (#N = newest, #1
+                           = oldest), so the highest # is at the top. -->
                       <div
                         v-for="(c, idx) in childRuns[r.id]"
                         :key="c.id"
@@ -661,7 +646,7 @@ const anyRunning = computed(() =>
                       >
                         <div class="flex items-center justify-between gap-2 flex-wrap mb-1">
                           <div class="flex items-center gap-1.5 min-w-0 flex-1">
-                            <span class="text-[11px] font-semibold text-primary shrink-0">#{{ idx + 1 }}</span>
+                            <span class="text-[11px] font-semibold text-primary shrink-0">#{{ (childRuns[r.id]?.length ?? 0) - idx }}</span>
                             <span class="text-[12px] font-semibold truncate">{{ scenarioLabel(c.scenario) }}</span>
                             <span
                               class="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0"
@@ -682,38 +667,9 @@ const anyRunning = computed(() =>
                             <span>전체 <span class="font-semibold">{{ c.expected_count }}</span></span>
                           </span>
                         </div>
-                        <div class="h-1.5 rounded-full bg-muted overflow-hidden flex mb-2">
+                        <div class="h-1.5 rounded-full bg-muted overflow-hidden flex">
                           <div class="bg-emerald-500 h-full transition-all" :style="{ width: pct(c.success_count, c.expected_count) }" />
                           <div class="bg-rose-500    h-full transition-all" :style="{ width: pct(c.failure_count, c.expected_count) }" />
-                        </div>
-                        <!-- Per-child actions: same set as the top row -->
-                        <div class="flex items-center gap-1 flex-wrap">
-                          <button
-                            v-if="c.status === 'queued' || c.status === 'running'"
-                            type="button"
-                            class="h-6 px-2 rounded border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 text-[10px] font-semibold inline-flex items-center gap-1 hover:bg-rose-100 dark:hover:bg-rose-950/50 disabled:opacity-50"
-                            :disabled="abortingId === c.id"
-                            :title="'#' + (idx + 1) + ' 실행 강제 종료'"
-                            @click="abortRow(c)"
-                          >
-                            <Loader2 v-if="abortingId === c.id" class="h-2.5 w-2.5 animate-spin" />
-                            <Ban v-else class="h-2.5 w-2.5" />
-                            강제 종료
-                          </button>
-                          <button
-                            type="button"
-                            class="h-6 px-2 rounded border text-[10px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
-                            :class="c.failure_count > 0
-                              ? 'border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/50'
-                              : 'border-input bg-background text-muted-foreground'"
-                            :disabled="retryingId === c.id || c.status === 'queued' || c.status === 'running' || c.failure_count === 0"
-                            :title="c.failure_count > 0 ? '#' + (idx + 1) + ' 의 실패만 재전송' : '실패한 항목 없음'"
-                            @click="retryFailedRowAsChild(c, r)"
-                          >
-                            <Loader2 v-if="retryingId === c.id" class="h-2.5 w-2.5 animate-spin" />
-                            <RotateCcw v-else class="h-2.5 w-2.5" />
-                            실패만 ({{ (c.failed_photo_ids?.length ?? 0) > 0 ? c.failed_photo_ids.length : c.failure_count }})
-                          </button>
                         </div>
                       </div>
                     </div>
