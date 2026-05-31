@@ -47,9 +47,9 @@ const api   = useApi();
 const toast = useToast();
 
 const scenarios = [
-  { id: "p100", label: "100% 성공", icon: CheckCheck,   hint: "모든 메시지를 관리자 Telegram으로 정상 전송. SVG는 자동 PNG 대체. N건 모두 성공." },
-  { id: "p50",  label: "50% 성공",  icon: MinusCircle,  hint: "절반은 성공, 절반은 의도된 실패 → DLQ. 스마트 재시도 검증용." },
-  { id: "p0",   label: "0% 성공",   icon: XCircle,      hint: "N건 모두 실패 → 3회 재시도 → DLQ. 재시도/복구 흐름 전체 검증." },
+  { id: "p100", label: "100% 성공", icon: CheckCheck,   hint: "N건 모두 성공. SVG는 자동 PNG 대체." },
+  { id: "p50",  label: "50% 성공",  icon: MinusCircle,  hint: "절반은 성공, 절반은 실패." },
+  { id: "p0",   label: "0% 성공",   icon: XCircle,      hint: "N건 모두 실패." },
 ];
 
 const selected = ref<string>("p100");
@@ -251,6 +251,8 @@ async function ensureChildren(parentId: string, force = false) {
 }
 async function toggleExpand(run: MqRun) {
   expandedRuns[run.id] = !expandedRuns[run.id];
+  // Always fetch children when expanding — even if child_count is 0 we want
+  // to show an empty list (so the retry buttons rendered alongside still appear).
   if (expandedRuns[run.id]) await ensureChildren(run.id);
 }
 
@@ -488,22 +490,23 @@ const anyRunning = computed(() =>
                 조건에 맞는 실행 기록이 없습니다.
               </div>
               <ul v-else class="divide-y">
-                <li v-for="r in history" :key="r.id" class="p-3 hover:bg-muted/30">
+                <li v-for="r in history" :key="r.id" class="hover:bg-muted/30">
+                  <!-- Whole header is clickable to expand. Retry/abort live INSIDE
+                       the panel so the click target stays unambiguous. -->
+                  <div
+                    class="p-3 cursor-pointer select-none"
+                    role="button"
+                    :aria-expanded="!!expandedRuns[r.id]"
+                    @click="toggleExpand(r)"
+                  >
                   <div class="flex items-center justify-between gap-3 mb-2 flex-wrap">
                     <div class="flex items-center gap-2 min-w-0 flex-1">
-                      <!-- 재시도 이력 fold/unfold chevron — visible only when this row has children -->
-                      <button
-                        v-if="r.child_count > 0"
-                        type="button"
-                        class="h-6 w-6 -ml-1 rounded hover:bg-muted inline-flex items-center justify-center text-muted-foreground shrink-0"
-                        :title="expandedRuns[r.id] ? '재시도 이력 접기' : `재시도 이력 ${r.child_count}건 보기`"
-                        @click="toggleExpand(r)"
-                      >
+                      <!-- Chevron is always present so users find the fold control on any row. -->
+                      <span class="h-6 w-6 -ml-1 rounded inline-flex items-center justify-center text-muted-foreground shrink-0">
                         <Loader2 v-if="childRunsLoading[r.id]" class="h-3.5 w-3.5 animate-spin" />
                         <ChevronDown v-else-if="expandedRuns[r.id]" class="h-3.5 w-3.5" />
                         <ChevronRight v-else class="h-3.5 w-3.5" />
-                      </button>
-                      <span v-else class="inline-block w-5 shrink-0"></span>
+                      </span>
                       <span class="text-sm font-semibold truncate">{{ scenarioLabel(r.scenario) }}</span>
                       <span v-if="r.child_count > 0" class="text-[10px] font-medium text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">
                         재시도 {{ r.child_count }}회
@@ -519,7 +522,9 @@ const anyRunning = computed(() =>
                       </span>
                       <span class="text-[10px] text-muted-foreground tabular-nums shrink-0">{{ fmtTime(r.queued_at) }}</span>
                     </div>
-                    <div class="flex items-center gap-1.5 shrink-0">
+                    <!-- 강제 종료 stays in the header — it's an emergency action
+                         for stuck queued/running rows, no need to expand to find it. -->
+                    <div class="flex items-center gap-1.5 shrink-0" @click.stop>
                       <button
                         v-if="r.status === 'queued' || r.status === 'running'"
                         type="button"
@@ -531,44 +536,6 @@ const anyRunning = computed(() =>
                         <Loader2 v-if="abortingId === r.id" class="h-3 w-3 animate-spin" />
                         <Ban v-else class="h-3 w-3" />
                         강제 종료
-                      </button>
-                      <!-- 전체 재시도 — only on top-level (header) rows. Hidden on
-                           history children since 'history' is a linked chain;
-                           extending it should use 실패만 to keep the chain coherent. -->
-                      <button
-                        v-if="r.event_id && !r.parent_run_id"
-                        type="button"
-                        class="h-7 px-2.5 rounded-md border border-input bg-background text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50"
-                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running'"
-                        :title="`이 배치의 모든 ${r.expected_count}건을 다시 전송 (성공 여부 무관)`"
-                        @click="retryAllRow(r)"
-                      >
-                        <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
-                        <RotateCcw v-else class="h-3 w-3" />
-                        전체 재시도
-                      </button>
-                      <!-- 실패만 재시도 — works on top-level AND on history children.
-                           Locks once this row has a successor (already retried once
-                           — the chain extends from the successor, not from here). -->
-                      <button
-                        type="button"
-                        class="h-7 px-2.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
-                        :class="(r.failure_count > 0 && !r.has_successor)
-                          ? 'border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/50'
-                          : 'border-input bg-background text-muted-foreground'"
-                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running' || r.failure_count === 0 || r.has_successor"
-                        :title="r.has_successor
-                          ? '이미 재시도된 기록입니다. 가장 최근 항목에서 다시 시도하세요.'
-                          : (r.failed_photo_ids?.length ?? 0) > 0
-                            ? `실패한 ${r.failed_photo_ids.length}건만 다시 전송 (성공한 항목은 건너뜀)`
-                            : r.failure_count > 0
-                              ? `실패 ${r.failure_count}건만큼 재전송 (legacy: 같은 배치에서 N건 다시 선택)`
-                              : '실패한 항목이 없습니다.'"
-                        @click="retryFailedRow(r)"
-                      >
-                        <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
-                        <RotateCcw v-else class="h-3 w-3" />
-                        {{ r.has_successor ? '연결됨' : `실패만 (${(r.failed_photo_ids?.length ?? 0) > 0 ? r.failed_photo_ids.length : r.failure_count})` }}
                       </button>
                     </div>
                   </div>
@@ -615,9 +582,48 @@ const anyRunning = computed(() =>
                       {{ r.last_error }}
                     </div>
                   </div>
+                  </div><!-- /clickable header -->
 
-                  <!-- 재시도 이력 — children of THIS run only, lazy-loaded. -->
-                  <div v-if="expandedRuns[r.id]" class="mt-3 ml-6 pl-3 border-l-2 border-primary/20 space-y-2">
+                  <!-- Expanded panel: retry actions + 재시도 이력 (lazy-loaded). -->
+                  <div v-if="expandedRuns[r.id]" class="border-t bg-muted/20 p-3 space-y-3" @click.stop>
+                    <!-- Retry actions live HERE inside the panel so they're discoverable. -->
+                    <div class="flex flex-wrap gap-1.5">
+                      <button
+                        v-if="r.event_id && !r.parent_run_id"
+                        type="button"
+                        class="h-7 px-2.5 rounded-md border border-input bg-background text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50"
+                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running'"
+                        :title="`이 배치의 모든 ${r.expected_count}건을 다시 전송 (성공 여부 무관)`"
+                        @click="retryAllRow(r)"
+                      >
+                        <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
+                        <RotateCcw v-else class="h-3 w-3" />
+                        전체 재시도
+                      </button>
+                      <button
+                        type="button"
+                        class="h-7 px-2.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+                        :class="(r.failure_count > 0 && !r.has_successor)
+                          ? 'border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/50'
+                          : 'border-input bg-background text-muted-foreground'"
+                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running' || r.failure_count === 0 || r.has_successor"
+                        :title="r.has_successor
+                          ? '이미 재시도된 기록입니다. 가장 최근 항목에서 다시 시도하세요.'
+                          : (r.failed_photo_ids?.length ?? 0) > 0
+                            ? `실패한 ${r.failed_photo_ids.length}건만 다시 전송 (성공한 항목은 건너뜀)`
+                            : r.failure_count > 0
+                              ? `실패 ${r.failure_count}건만큼 재전송`
+                              : '실패한 항목이 없습니다.'"
+                        @click="retryFailedRow(r)"
+                      >
+                        <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
+                        <RotateCcw v-else class="h-3 w-3" />
+                        {{ r.has_successor ? '연결됨' : `실패만 (${(r.failed_photo_ids?.length ?? 0) > 0 ? r.failed_photo_ids.length : r.failure_count})` }}
+                      </button>
+                    </div>
+
+                    <!-- 재시도 이력 — descendants only, lazy-loaded. -->
+                    <div class="ml-3 pl-3 border-l-2 border-primary/20 space-y-2">
                     <div v-if="childRunsLoading[r.id] && !childRuns[r.id]" class="text-[11px] text-muted-foreground inline-flex items-center gap-1">
                       <Loader2 class="h-3 w-3 animate-spin" />
                       재시도 이력을 불러오는 중…
@@ -678,7 +684,8 @@ const anyRunning = computed(() =>
                         </button>
                       </div>
                     </div>
-                  </div>
+                    </div><!-- /재시도 이력 wrapper -->
+                  </div><!-- /expanded panel -->
                 </li>
               </ul>
             </div>
