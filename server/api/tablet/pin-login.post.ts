@@ -31,13 +31,10 @@ interface PinLoginResp {
 
 export default defineEventHandler(async (event) => {
   const body = Body.parse(await readBody(event));
-  const deviceToken = getDeviceToken(event);
-  if (!deviceToken) {
-    throw createError({
-      statusCode: 412,
-      statusMessage: "device not paired — visit /tablet/pair first",
-    });
-  }
+  // device_token is now optional; include it if we have one (lets paired
+  // tablets continue to work) but missing is fine for the typical case
+  // where the worker is just using the website on their tablet.
+  const deviceToken = getDeviceToken(event) ?? "";
 
   let res: PinLoginResp;
   try {

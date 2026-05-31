@@ -70,13 +70,8 @@ async function submit() {
   try {
     await pinLogin(email.value.trim(), pin.value);
   } catch (e: any) {
-    error.value = e?.data?.statusMessage ?? "PIN이 올바르지 않습니다.";
+    error.value = e?.data?.statusMessage ?? "이메일 또는 PIN이 올바르지 않습니다.";
     pin.value = "";
-    // If the device isn't paired yet, the backend returns 412. Send the
-    // user to the pair page so the centre manager can issue a code.
-    if (e?.status === 412) {
-      await navigateTo("/tablet/pair");
-    }
   } finally {
     submitting.value = false;
   }
