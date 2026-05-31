@@ -99,21 +99,22 @@ function applyFilters() {
 watch(pageSize, () => { page.value = 1; });
 
 // Unified UI: there's no longer a separate "master mode". Both the per-row
-// [테스트] button and the 마스터 테스트 button open this same modal — the
-// only difference is that the per-row button pre-fills `masterEventId` so
-// the executions list is already filtered to that event. The user can clear
-// the picker to see all events' runs at any time.
+// [테스트] button and the 마스터 테스트 button open this same modal. The
+// per-row button pre-fills the EVENT PICKER (대상 이벤트) so the next test
+// fires against that event — but the executions list below is NEVER
+// auto-filtered by the picker; it always shows every event's runs (its own
+// scenario/status filters still work). This keeps the runs panel as a
+// single global timeline.
 
 const { data: paged, refresh: refreshHistory } = await useAsyncData<RunPage>(
-  () => `mq-runs-${masterEventId.value || "all"}-${fAppliedScenario.value}-${fAppliedStatus.value}-${page.value}-${pageSize.value}`,
+  () => `mq-runs-${fAppliedScenario.value}-${fAppliedStatus.value}-${page.value}-${pageSize.value}`,
   () => api.get<RunPage>("/v1/mq-test/runs", {
-    event_id:  masterEventId.value || undefined,
     scenario:  fAppliedScenario.value || undefined,
     status:    fAppliedStatus.value || undefined,
     page:      page.value,
     page_size: pageSize.value,
   }),
-  { watch: [masterEventId, fAppliedScenario, fAppliedStatus, page, pageSize], default: () => ({ items: [], total: 0, page: 1, page_size: 10 }), lazy: true },
+  { watch: [fAppliedScenario, fAppliedStatus, page, pageSize], default: () => ({ items: [], total: 0, page: 1, page_size: 10 }), lazy: true },
 );
 const history     = computed(() => paged.value?.items ?? []);
 const total       = computed(() => paged.value?.total ?? 0);
