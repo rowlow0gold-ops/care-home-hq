@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Heart, LogIn, Mail, Lock, Eye, EyeOff, Loader2, Building2, Shield, Copy, Search } from "@lucide/vue";
+import { Heart, LogIn, Mail, Lock, Eye, EyeOff, Loader2, Building2, Shield, Copy, Search, HeartHandshake } from "@lucide/vue";
 
 definePageMeta({ layout: "auth" });
 
@@ -17,6 +17,16 @@ const submitting = ref(false);
 
 // Demo accounts seeded in the DB. All share password "admin1234".
 const hqAccount = { email: "hq@demo.com", label: "본사 관리자", icon: Shield };
+
+// Demo caregiver account (요양보호사) — slug matches the seeded
+// 'cg{N}.{slug}@demo.com' pattern from the regional reseed migration.
+// HQ web access for caregivers is limited (most pages 403); the main
+// caregiver flow is the tablet PIN login at /tablet.
+const workerAccount = {
+  email: "cg1.seoul-hub@demo.com",
+  label: "요양보호사 (서울광역센터)",
+  icon: HeartHandshake,
+};
 
 // Web admin is for HQ + Hub managers only. Satellite (Sat) center managers
 // access a different interface, so their accounts are intentionally not
@@ -183,6 +193,31 @@ async function onSubmit() {
             class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-7 w-7 rounded flex items-center justify-center hover:bg-foreground/10"
             :aria-label="`${hqAccount.email} 복사`"
             @click="copyEmail($event, hqAccount.email)"
+          >
+            <Copy class="h-3.5 w-3.5" />
+          </button>
+        </div>
+
+        <!-- Caregiver (worker) demo account — one-click pick. -->
+        <div class="relative mb-2 group">
+          <button
+            type="button"
+            class="w-full flex items-center gap-3 px-3 py-2.5 pr-11 rounded-lg border border-emerald-500/30 bg-emerald-500/5 hover:bg-emerald-500/10 transition-colors text-left"
+            @click="pick(workerAccount)"
+          >
+            <div class="h-8 w-8 rounded-full bg-emerald-500 text-white flex items-center justify-center flex-shrink-0">
+              <HeartHandshake class="h-4 w-4" />
+            </div>
+            <div class="flex-1 min-w-0">
+              <div class="text-sm font-medium">{{ workerAccount.label }}</div>
+              <div class="text-xs text-muted-foreground font-mono truncate">{{ workerAccount.email }}</div>
+            </div>
+          </button>
+          <button
+            type="button"
+            class="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity h-7 w-7 rounded flex items-center justify-center hover:bg-foreground/10"
+            :aria-label="`${workerAccount.email} 복사`"
+            @click="copyEmail($event, workerAccount.email)"
           >
             <Copy class="h-3.5 w-3.5" />
           </button>
