@@ -10,6 +10,13 @@ const PUBLIC_ROUTES = new Set(["/login"]);
 export default defineNuxtRouteMiddleware(async (to) => {
   const { me, refresh } = useAuth();
 
+  // /tablet/* has its own auth gate (tablet.global) with a separate session
+  // cookie. Skip the HQ auth check entirely so it doesn't bounce caregivers
+  // to /login (which would fail because they have no HQ password).
+  if (to.path.startsWith("/tablet")) {
+    return;
+  }
+
   if (PUBLIC_ROUTES.has(to.path)) {
     return;
   }
