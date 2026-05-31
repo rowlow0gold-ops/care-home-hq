@@ -469,19 +469,6 @@ const anyRunning = computed(() =>
                         <Ban v-else class="h-3 w-3" />
                         강제 종료
                       </button>
-                      <!-- 실패만 재시도 — only enabled if the worker tracked failures -->
-                      <button
-                        v-if="(r.failed_photo_ids?.length ?? 0) > 0"
-                        type="button"
-                        class="h-7 px-2.5 rounded-md border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-rose-100 dark:hover:bg-rose-950/50 disabled:opacity-50"
-                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running'"
-                        :title="`실패한 ${r.failed_photo_ids.length}건만 다시 전송 (성공한 항목은 건너뜀)`"
-                        @click="retryFailedRow(r)"
-                      >
-                        <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
-                        <RotateCcw v-else class="h-3 w-3" />
-                        실패만 ({{ r.failed_photo_ids.length }})
-                      </button>
                       <!-- 전체 재시도 — re-fire the whole batch from scratch -->
                       <button
                         v-if="r.event_id"
@@ -494,6 +481,26 @@ const anyRunning = computed(() =>
                         <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
                         <RotateCcw v-else class="h-3 w-3" />
                         전체 재시도
+                      </button>
+                      <!-- 실패만 재시도 — always rendered after 전체 재시도. Disabled
+                           with a tooltip when failed_photo_ids is empty (e.g. the
+                           worker never tracked failures, or sweep failed without
+                           per-photo info). -->
+                      <button
+                        type="button"
+                        class="h-7 px-2.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
+                        :class="(r.failed_photo_ids?.length ?? 0) > 0
+                          ? 'border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/50'
+                          : 'border-input bg-background text-muted-foreground'"
+                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running' || (r.failed_photo_ids?.length ?? 0) === 0"
+                        :title="(r.failed_photo_ids?.length ?? 0) > 0
+                          ? `실패한 ${r.failed_photo_ids.length}건만 다시 전송 (성공한 항목은 건너뜀)`
+                          : '실패 항목이 추적되지 않은 실행입니다. 전체 재시도를 사용하세요.'"
+                        @click="retryFailedRow(r)"
+                      >
+                        <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
+                        <RotateCcw v-else class="h-3 w-3" />
+                        실패만 ({{ r.failed_photo_ids?.length ?? 0 }})
                       </button>
                     </div>
                   </div>
