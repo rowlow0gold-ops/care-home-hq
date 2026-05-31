@@ -12,7 +12,7 @@
 import {
   X, FlaskConical, Loader2, CheckCircle2, AlertTriangle, Skull,
   Send, Network, Image as ImageIcon, MessageSquare, RefreshCw,
-  Trash2, RotateCcw, Archive,
+  RotateCcw, Search, ChevronLeft, ChevronRight,
 } from "@lucide/vue";
 
 interface MqRun {
@@ -53,26 +53,42 @@ const scenarios = [
 const selected = ref<string>("happy");
 const firing   = ref(false);
 
-const { data: history, refresh: refreshHistory } = await useAsyncData<MqRun[]>(
-  "mq-runs-list",
-  () => api.get<MqRun[]>("/v1/mq-test/runs"),
-  { default: () => [], lazy: true },
-);
+// Paged + filtered runs list.
+interface RunPage { items: MqRun[]; total: number; page: number; page_size: number }
 
-interface DlqStatus { queues: { queue: string; count: number }[]; total: number }
-const { data: dlq, refresh: refreshDlq } = await useAsyncData<DlqStatus | null>(
-  "mq-dlq-status",
-  () => api.get<DlqStatus>("/v1/mq-test/dlq"),
-  { default: () => null, lazy: true },
-);
-const dlqBusy = ref(false);
+const fScenario = ref<string>("");
+const fStatus   = ref<string>("");
+const fAppliedScenario = ref("");
+const fAppliedStatus   = ref("");
+const page      = ref(1);
+const pageSize  = ref(10);
+function applyFilters() {
+  fAppliedScenario.value = fScenario.value;
+  fAppliedStatus.value   = fStatus.value;
+  page.value = 1;
+}
+watch(pageSize, () => { page.value = 1; });
 
-// Poll while any row is queued/running.
+const { data: paged, refresh: refreshHistory } = await useAsyncData<RunPage>(
+  () => `mq-runs-${fAppliedScenario.value}-${fAppliedStatus.value}-${page.value}-${pageSize.value}`,
+  () => api.get<RunPage>("/v1/mq-test/runs", {
+    scenario:  fAppliedScenario.value || undefined,
+    status:    fAppliedStatus.value || undefined,
+    page:      page.value,
+    page_size: pageSize.value,
+  }),
+  { watch: [fAppliedScenario, fAppliedStatus, page, pageSize], default: () => ({ items: [], total: 0, page: 1, page_size: 10 }), lazy: true },
+);
+const history     = computed(() => paged.value?.items ?? []);
+const total       = computed(() => paged.value?.total ?? 0);
+const totalPages  = computed(() => Math.max(1, Math.ceil(total.value / pageSize.value)));
+
+// Poll while any row on the current page is queued/running.
 let poller: ReturnType<typeof setInterval> | null = null;
 function startPolling() {
   stopPolling();
   poller = setInterval(async () => {
-    await Promise.all([refreshHistory(), refreshDlq()]);
+    await refreshHistory();
     const stillRunning = (history.value ?? []).some(
       (r) => r.status === "queued" || r.status === "running",
     );
@@ -84,7 +100,7 @@ function stopPolling() {
 }
 watch(() => props.open, async (o) => {
   if (o) {
-    await Promise.all([refreshHistory(), refreshDlq()]);
+    await refreshHistory();
     startPolling();
   } else {
     stopPolling();
@@ -100,7 +116,11 @@ async function fire(scenario: string) {
       event_id: props.eventId,
       scenario,
     });
-    await Promise.all([refreshHistory(), refreshDlq()]);
+    // Reset filters to default so the new run is visible.
+    fScenario.value = ""; fAppliedScenario.value = "";
+    fStatus.value   = ""; fAppliedStatus.value   = "";
+    page.value = 1;
+    await refreshHistory();
     startPolling();
     toast.success(
       `${scenarioLabel(scenario)} — ${run.expected_count ?? 1}건 큐에 넣음`,
@@ -124,44 +144,13 @@ async function retryRow(run: MqRun) {
         ? "happy"  // retrying a deliberate-fail scenario actually delivers
         : run.scenario,
     });
-    await Promise.all([refreshHistory(), refreshDlq()]);
+    await refreshHistory();
     startPolling();
     toast.success(`재시도 시작 (${newRun.expected_count ?? 1}건)`, "🔁 재시도");
   } catch (e: any) {
     toast.error(e?.data?.message ?? "재시도 실패", "오류");
   } finally {
     retryingId.value = null;
-  }
-}
-
-async function replayDlq() {
-  if (dlqBusy.value) return;
-  if (!confirm("DLQ에 있는 모든 실패 메시지를 메인 큐로 다시 보냅니다. 진행할까요?")) return;
-  dlqBusy.value = true;
-  try {
-    const r = await api.post<{ moved: number; test_rewrites?: number }>("/v1/mq-test/dlq/replay", {});
-    const note = (r.test_rewrites ?? 0) > 0 ? ` (${r.test_rewrites}건은 happy로 변환)` : "";
-    toast.success(`${r.moved}건 재시도 큐에 넣음${note}`, "🔁 DLQ 재시도");
-    await Promise.all([refreshDlq(), refreshHistory()]);
-    startPolling();
-  } catch (e: any) {
-    toast.error(e?.data?.message ?? "재시도 실패", "오류");
-  } finally {
-    dlqBusy.value = false;
-  }
-}
-async function purgeDlq() {
-  if (dlqBusy.value) return;
-  if (!confirm("⚠️ DLQ에 있는 모든 실패 메시지를 영구 삭제합니다. 복구 불가. 진행할까요?")) return;
-  dlqBusy.value = true;
-  try {
-    const r = await api.post<{ deleted: number }>("/v1/mq-test/dlq/purge", {});
-    toast.success(`${r.deleted}건 삭제됨`, "🗑️ DLQ 비움");
-    await refreshDlq();
-  } catch (e: any) {
-    toast.error(e?.data?.message ?? "삭제 실패", "오류");
-  } finally {
-    dlqBusy.value = false;
   }
 }
 
@@ -254,19 +243,46 @@ const anyRunning = computed(() =>
             </button>
           </div>
 
-          <!-- Executed runs list (each row has its own progress bar + retry) -->
+          <!-- Executed runs list (paged + filtered) -->
           <div>
             <h3 class="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center justify-between">
-              <span>실행된 시나리오 (최근 20)</span>
+              <span>실행된 시나리오</span>
               <button type="button" class="text-muted-foreground hover:text-foreground inline-flex items-center gap-1 normal-case text-[10px] font-normal" @click="refreshHistory">
                 <RefreshCw class="h-3 w-3" />
                 새로고침
               </button>
             </h3>
+
+            <!-- Filter bar -->
+            <div class="rounded-lg border bg-muted/10 px-3 py-2 mb-2 flex flex-wrap items-center gap-2">
+              <select v-model="fScenario" class="h-8 w-44 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary">
+                <option value="">전체 시나리오</option>
+                <option v-for="s in scenarios" :key="s.id" :value="s.id">{{ s.label }}</option>
+              </select>
+              <select v-model="fStatus" class="h-8 w-32 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary">
+                <option value="">전체 상태</option>
+                <option value="queued">대기</option>
+                <option value="running">진행중</option>
+                <option value="success">성공</option>
+                <option value="failed">실패</option>
+                <option value="dlq">실패 (DLQ)</option>
+              </select>
+              <button
+                type="button" @click="applyFilters"
+                class="h-8 w-8 rounded-md bg-primary text-primary-foreground hover:bg-primary/90 inline-flex items-center justify-center"
+                title="필터 적용"
+              >
+                <Search class="h-3.5 w-3.5" />
+              </button>
+              <span class="ml-auto text-[11px] text-muted-foreground tabular-nums">
+                {{ total > 0 ? ((page - 1) * pageSize + 1) : 0 }}–{{ Math.min(page * pageSize, total) }} / 총 {{ total }}건
+              </span>
+            </div>
+
             <div class="rounded-lg border overflow-hidden">
               <div v-if="(history?.length ?? 0) === 0" class="py-12 text-center text-sm text-muted-foreground">
                 <FlaskConical class="h-10 w-10 mx-auto mb-3 opacity-30" />
-                아직 실행한 시나리오가 없습니다.
+                조건에 맞는 실행 기록이 없습니다.
               </div>
               <ul v-else class="divide-y">
                 <li v-for="r in history" :key="r.id" class="p-3 hover:bg-muted/30">
@@ -339,49 +355,24 @@ const anyRunning = computed(() =>
                 </li>
               </ul>
             </div>
-          </div>
 
-          <!-- DLQ summary -->
-          <div class="rounded-lg border bg-card">
-            <div class="px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2">
-              <h3 class="text-sm font-semibold flex items-center gap-2">
-                <Archive class="h-4 w-4 text-rose-600" />
-                실패 격리함 (DLQ)
-                <span
-                  class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium tabular-nums"
-                  :class="(dlq?.total ?? 0) > 0
-                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
-                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'"
-                >
-                  {{ dlq?.total ?? 0 }}건
-                </span>
-              </h3>
-              <div class="flex items-center gap-1.5">
-                <button
-                  type="button"
-                  class="h-8 px-2.5 rounded-md border border-input bg-background text-xs font-semibold inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50"
-                  :disabled="dlqBusy || (dlq?.total ?? 0) === 0"
-                  @click="replayDlq"
-                >
-                  <Loader2 v-if="dlqBusy" class="h-3 w-3 animate-spin" />
-                  <RotateCcw v-else class="h-3 w-3" />
-                  전체 재시도 ({{ dlq?.total ?? 0 }})
+            <!-- Page controls (outside list so empty state doesn't show paginator) -->
+            <div v-if="total > 0" class="flex items-center justify-between mt-3 text-xs">
+              <div class="text-muted-foreground">페이지 {{ page }} / {{ totalPages }}</div>
+              <div class="flex items-center gap-2">
+                <select v-model.number="pageSize" class="h-7 px-2 rounded-md border border-input bg-background text-xs focus:outline-none focus:border-primary">
+                  <option :value="10">10/page</option>
+                  <option :value="25">25/page</option>
+                  <option :value="50">50/page</option>
+                </select>
+                <button class="h-7 w-7 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="page <= 1" @click="page--">
+                  <ChevronLeft class="h-3.5 w-3.5" />
                 </button>
-                <button
-                  type="button"
-                  class="h-8 px-2.5 rounded-md border border-destructive/40 text-destructive text-xs font-semibold inline-flex items-center gap-1 hover:bg-destructive/10 disabled:opacity-50"
-                  :disabled="dlqBusy || (dlq?.total ?? 0) === 0"
-                  @click="purgeDlq"
-                >
-                  <Trash2 class="h-3 w-3" />
-                  비우기
+                <button class="h-7 w-7 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="page >= totalPages" @click="page++">
+                  <ChevronRight class="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
-            <p class="px-4 py-2 text-[11px] text-muted-foreground">
-              자동 격리됨. 원인을 고친 후 <strong>전체 재시도</strong>로 일괄 재처리.
-              (force_fail / bad_image 등 실패 시나리오는 재시도 시 자동으로 happy로 변환)
-            </p>
           </div>
         </div>
 
