@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   ArrowLeft, AlertTriangle, HeartPulse, ClipboardList, Pill, User, Phone, Send,
-  Download, Loader2, Search, ChevronLeft, ChevronRight, AlertCircle, Camera,
+  Download, Loader2, Search, ChevronLeft, ChevronRight, AlertCircle, Camera, X,
 } from "@lucide/vue";
 import { Line as LineChart } from "vue-chartjs";
 import {
@@ -187,6 +187,36 @@ const { data: phPaged, pending: phPending } = await useAsyncData(
   { watch: [phAppliedTag, phAppliedStatus, phPage, phPageSize], lazy: true },
 );
 const phTotalPages = computed(() => Math.max(1, Math.ceil((phPaged.value?.total ?? 0) / phPageSize.value)));
+
+// Lightbox state — clicking a thumb opens a fullscreen modal with prev/next
+// (within the current page). ESC + click-outside + buttons all close.
+const lightboxIndex = ref<number | null>(null);
+const lightboxPhoto = computed<PhotoRow | null>(() =>
+  lightboxIndex.value === null ? null : (phPaged.value?.items?.[lightboxIndex.value] ?? null),
+);
+function openLightbox(idx: number) { lightboxIndex.value = idx; }
+function closeLightbox() { lightboxIndex.value = null; }
+function lightboxPrev() {
+  if (lightboxIndex.value === null) return;
+  const len = phPaged.value?.items?.length ?? 0;
+  if (len === 0) return;
+  lightboxIndex.value = (lightboxIndex.value - 1 + len) % len;
+}
+function lightboxNext() {
+  if (lightboxIndex.value === null) return;
+  const len = phPaged.value?.items?.length ?? 0;
+  if (len === 0) return;
+  lightboxIndex.value = (lightboxIndex.value + 1) % len;
+}
+// Keyboard nav while open
+onMounted(() => {
+  window.addEventListener("keydown", (e) => {
+    if (lightboxIndex.value === null) return;
+    if (e.key === "Escape")      closeLightbox();
+    else if (e.key === "ArrowLeft")  lightboxPrev();
+    else if (e.key === "ArrowRight") lightboxNext();
+  });
+});
 
 // ── Download everything as xlsx (same fetch pattern as Residents.vue) ───
 const downloading = ref(false);
@@ -530,11 +560,12 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
           </div>
           <div v-else class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
             <figure
-              v-for="p in phPaged!.items"
+              v-for="(p, idx) in phPaged!.items"
               :key="p.id"
-              class="rounded-lg border bg-background overflow-hidden hover:border-primary transition-colors"
+              class="rounded-lg border bg-background overflow-hidden hover:border-primary transition-colors group cursor-zoom-in"
+              @click="openLightbox(idx)"
             >
-              <img :src="p.data_url" :alt="p.caption ?? ''" class="w-full aspect-square object-cover bg-muted" loading="lazy" />
+              <img :src="p.data_url" :alt="p.caption ?? ''" class="w-full aspect-square object-cover bg-muted group-hover:scale-[1.02] transition-transform" loading="lazy" />
               <figcaption class="p-2 text-[11px] space-y-0.5">
                 <div class="flex items-center justify-between gap-1">
                   <span
@@ -567,5 +598,57 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
         </div>
       </div>
     </template>
+
+    <!-- Lightbox: click-to-zoom on the 사진 tab thumbs. ESC / click backdrop /
+         arrow keys to navigate (within current page). -->
+    <Teleport to="body">
+      <div
+        v-if="lightboxPhoto"
+        class="fixed inset-0 z-[200] bg-black/85 backdrop-blur-sm flex flex-col items-center justify-center p-6"
+        @click.self="closeLightbox"
+      >
+        <button
+          type="button"
+          class="absolute top-4 right-4 h-11 w-11 rounded-full bg-white/10 hover:bg-white/20 text-white inline-flex items-center justify-center"
+          aria-label="닫기"
+          @click="closeLightbox"
+        >
+          <X class="h-5 w-5" />
+        </button>
+        <button
+          v-if="(phPaged?.items?.length ?? 0) > 1"
+          type="button"
+          class="absolute left-4 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white inline-flex items-center justify-center"
+          aria-label="이전"
+          @click.stop="lightboxPrev"
+        >
+          <ChevronLeft class="h-6 w-6" />
+        </button>
+        <button
+          v-if="(phPaged?.items?.length ?? 0) > 1"
+          type="button"
+          class="absolute right-4 top-1/2 -translate-y-1/2 h-12 w-12 rounded-full bg-white/10 hover:bg-white/20 text-white inline-flex items-center justify-center"
+          aria-label="다음"
+          @click.stop="lightboxNext"
+        >
+          <ChevronRight class="h-6 w-6" />
+        </button>
+        <img
+          :src="lightboxPhoto.data_url"
+          :alt="lightboxPhoto.caption ?? ''"
+          class="max-w-full max-h-[80vh] object-contain rounded-lg shadow-2xl"
+          @click.stop
+        />
+        <div class="mt-4 max-w-2xl text-center text-white/90 text-sm space-y-1" @click.stop>
+          <div class="text-xs text-white/60 tabular-nums">
+            {{ new Date(lightboxPhoto.taken_at).toLocaleString("ko-KR", { dateStyle: "full", timeStyle: "short" }) }}
+            <span v-if="lightboxPhoto.tag"> · {{ lightboxPhoto.tag }}</span>
+            <span v-if="lightboxPhoto.status"> · {{ lightboxPhoto.status === 'approved' ? '승인됨' : lightboxPhoto.status === 'rejected' ? '반려됨' : '대기중' }}</span>
+            <span class="ml-2 opacity-70">({{ (lightboxIndex ?? 0) + 1 }} / {{ phPaged?.items?.length ?? 0 }})</span>
+          </div>
+          <div v-if="lightboxPhoto.caption">{{ lightboxPhoto.caption }}</div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
