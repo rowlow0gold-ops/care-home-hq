@@ -192,14 +192,20 @@ const abortingId  = ref<string | null>(null);
 // Both rewrite to p100 so retries always deliver — never inject new failures.
 async function retryFailedRow(run: MqRun) {
   if (retryingId.value) return;
-  if ((run.failed_photo_ids?.length ?? 0) === 0) {
-    toast.error("이 실행에는 추적된 실패 항목이 없습니다", "재시도 불가");
+  if (run.failure_count === 0) {
+    toast.error("실패한 항목이 없습니다", "재시도 불가");
     return;
   }
   retryingId.value = run.id;
   try {
     const newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/retry-failed`, {});
-    toast.success(`실패 ${run.failed_photo_ids.length}건만 재전송 (${newRun.expected_count}건 큐)`, "🎯 실패만 재시도");
+    const tracked = (run.failed_photo_ids?.length ?? 0) > 0;
+    toast.success(
+      tracked
+        ? `추적된 실패 ${run.failed_photo_ids.length}건 재전송 (${newRun.expected_count}건 큐)`
+        : `legacy 폴백: 배치에서 ${newRun.expected_count}건 다시 선택`,
+      "🎯 실패만 재시도",
+    );
     afterRetry();
   } catch (e: any) {
     toast.error(e?.data?.message ?? "실패만 재시도 실패", "오류");
@@ -482,25 +488,29 @@ const anyRunning = computed(() =>
                         <RotateCcw v-else class="h-3 w-3" />
                         전체 재시도
                       </button>
-                      <!-- 실패만 재시도 — always rendered after 전체 재시도. Disabled
-                           with a tooltip when failed_photo_ids is empty (e.g. the
-                           worker never tracked failures, or sweep failed without
-                           per-photo info). -->
+                      <!-- 실패만 재시도 — always rendered after 전체 재시도. Active
+                           whenever failure_count > 0. If failed_photo_ids is
+                           tracked the backend re-fires exactly those; for
+                           legacy rows (no per-photo tracking) it falls back
+                           to picking N=expected-success photos from the same
+                           event batch. -->
                       <button
                         type="button"
                         class="h-7 px-2.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
-                        :class="(r.failed_photo_ids?.length ?? 0) > 0
+                        :class="r.failure_count > 0
                           ? 'border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/50'
                           : 'border-input bg-background text-muted-foreground'"
-                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running' || (r.failed_photo_ids?.length ?? 0) === 0"
+                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running' || r.failure_count === 0"
                         :title="(r.failed_photo_ids?.length ?? 0) > 0
                           ? `실패한 ${r.failed_photo_ids.length}건만 다시 전송 (성공한 항목은 건너뜀)`
-                          : '실패 항목이 추적되지 않은 실행입니다. 전체 재시도를 사용하세요.'"
+                          : r.failure_count > 0
+                            ? `실패 ${r.failure_count}건만큼 재전송 (legacy: 같은 배치에서 N건 다시 선택)`
+                            : '실패한 항목이 없습니다.'"
                         @click="retryFailedRow(r)"
                       >
                         <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
                         <RotateCcw v-else class="h-3 w-3" />
-                        실패만 ({{ r.failed_photo_ids?.length ?? 0 }})
+                        실패만 ({{ (r.failed_photo_ids?.length ?? 0) > 0 ? r.failed_photo_ids.length : r.failure_count }})
                       </button>
                     </div>
                   </div>
