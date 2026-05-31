@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import {
   ArrowLeft, AlertTriangle, HeartPulse, ClipboardList, Pill, User, Phone, Send,
-  Download, Loader2, Search, ChevronLeft, ChevronRight, AlertCircle,
+  Download, Loader2, Search, ChevronLeft, ChevronRight, AlertCircle, Camera,
 } from "@lucide/vue";
 import { Line as LineChart } from "vue-chartjs";
 import {
@@ -37,7 +37,7 @@ interface ResidentDetail {
 }
 interface Vital { id: string; recorded_at: string; kind: string; value: number; note: string | null }
 
-type Tab = "summary" | "vitals" | "care-logs" | "medications";
+type Tab = "summary" | "vitals" | "care-logs" | "medications" | "photos";
 const tab = ref<Tab>("summary");
 
 const { data: detail, pending: residentPending } = await useAsyncData(
@@ -163,6 +163,31 @@ const { data: mPaged, pending: mPending, refresh: mRefresh } = await useAsyncDat
 );
 const mTotalPages = computed(() => Math.max(1, Math.ceil((mPaged.value?.total ?? 0) / mPageSize.value)));
 
+// 사진 — paged photo grid for this resident (any tag).
+interface PhotoRow {
+  id: string; resident_id: string; taken_at: string;
+  caption: string | null; status: string; tag: string | null;
+  picked_for_month: string | null; data_url: string;
+}
+const phPage     = ref(1);
+const phPageSize = ref(24);
+const phTag      = ref("");
+const phStatus   = ref("");
+const phAppliedTag    = ref("");
+const phAppliedStatus = ref("");
+watch(phPageSize, () => { phPage.value = 1; });
+function phApply() { phAppliedTag.value = phTag.value; phAppliedStatus.value = phStatus.value; phPage.value = 1; }
+const { data: phPaged, pending: phPending } = await useAsyncData(
+  () => `ph-${id}-${phAppliedTag.value}-${phAppliedStatus.value}-${phPage.value}-${phPageSize.value}`,
+  () => api.get<PagedResp<PhotoRow>>(`/v1/residents/${id}/photos`, {
+    tag:    phAppliedTag.value || undefined,
+    status: phAppliedStatus.value || undefined,
+    page:   phPage.value, page_size: phPageSize.value,
+  }),
+  { watch: [phAppliedTag, phAppliedStatus, phPage, phPageSize], lazy: true },
+);
+const phTotalPages = computed(() => Math.max(1, Math.ceil((phPaged.value?.total ?? 0) / phPageSize.value)));
+
 // ── Download everything as xlsx (same fetch pattern as Residents.vue) ───
 const downloading = ref(false);
 async function downloadAll() {
@@ -193,6 +218,7 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
   { id: "vitals",      label: "활력징후",  icon: HeartPulse,    count: () => vPaged.value?.total ?? 0 },
   { id: "care-logs",   label: "케어 기록", icon: ClipboardList, count: () => lPaged.value?.total ?? 0 },
   { id: "medications", label: "투약",      icon: Pill,          count: () => mPaged.value?.total ?? 0 },
+  { id: "photos",      label: "사진",      icon: Camera,        count: () => phPaged.value?.total ?? 0 },
 ];
 </script>
 
@@ -474,6 +500,69 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
             </select>
             <button class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="mPage <= 1" @click="mPage--"><ChevronLeft class="h-4 w-4" /></button>
             <button class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="mPage >= mTotalPages" @click="mPage++"><ChevronRight class="h-4 w-4" /></button>
+          </div>
+        </div>
+      </div>
+
+      <!-- TAB: 사진 -->
+      <div v-else-if="tab === 'photos'" class="rounded-xl border bg-card overflow-hidden">
+        <div class="px-6 py-3 border-b flex flex-wrap items-center gap-2 bg-muted/10">
+          <select v-model="phTag" class="h-9 px-2 rounded-md border border-input bg-background text-sm">
+            <option value="">전체 태그</option>
+            <option value="regular">정기 (월별)</option>
+            <option value="custom">비정기</option>
+          </select>
+          <select v-model="phStatus" class="h-9 px-2 rounded-md border border-input bg-background text-sm">
+            <option value="">전체 상태</option>
+            <option value="pending">대기중</option>
+            <option value="approved">승인됨</option>
+            <option value="rejected">반려됨</option>
+          </select>
+          <button type="button" class="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium" @click="phApply">
+            필터 적용
+          </button>
+          <span class="ml-auto text-xs text-muted-foreground tabular-nums">총 {{ phPaged?.total ?? 0 }}장</span>
+        </div>
+        <div class="p-4">
+          <div v-if="phPending" class="py-12 text-center text-sm text-muted-foreground">불러오는 중…</div>
+          <div v-else-if="(phPaged?.items?.length ?? 0) === 0" class="py-12 text-center text-sm text-muted-foreground">
+            등록된 사진이 없습니다.
+          </div>
+          <div v-else class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+            <figure
+              v-for="p in phPaged!.items"
+              :key="p.id"
+              class="rounded-lg border bg-background overflow-hidden hover:border-primary transition-colors"
+            >
+              <img :src="p.data_url" :alt="p.caption ?? ''" class="w-full aspect-square object-cover bg-muted" loading="lazy" />
+              <figcaption class="p-2 text-[11px] space-y-0.5">
+                <div class="flex items-center justify-between gap-1">
+                  <span
+                    class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium"
+                    :class="p.status === 'approved'
+                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'
+                      : p.status === 'rejected'
+                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
+                        : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200'"
+                  >{{ p.status === 'approved' ? '승인' : p.status === 'rejected' ? '반려' : '대기' }}</span>
+                  <span v-if="p.tag" class="text-muted-foreground truncate">{{ p.tag }}</span>
+                </div>
+                <div class="text-muted-foreground text-[10px] tabular-nums">
+                  {{ new Date(p.taken_at).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" }) }}
+                </div>
+                <div v-if="p.caption" class="truncate" :title="p.caption">{{ p.caption }}</div>
+              </figcaption>
+            </figure>
+          </div>
+        </div>
+        <div v-if="(phPaged?.total ?? 0) > 0" class="px-6 py-3 border-t flex items-center justify-between text-sm">
+          <div class="text-xs text-muted-foreground">페이지 {{ phPaged?.page ?? 1 }} / {{ phTotalPages }}</div>
+          <div class="flex items-center gap-2">
+            <select v-model.number="phPageSize" class="h-8 px-2 rounded-md border border-input bg-background text-xs">
+              <option :value="24">24/page</option><option :value="48">48/page</option><option :value="96">96/page</option>
+            </select>
+            <button class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="phPage <= 1" @click="phPage--"><ChevronLeft class="h-4 w-4" /></button>
+            <button class="h-8 w-8 rounded-md border border-input bg-background flex items-center justify-center hover:bg-muted disabled:opacity-40" :disabled="phPage >= phTotalPages" @click="phPage++"><ChevronRight class="h-4 w-4" /></button>
           </div>
         </div>
       </div>

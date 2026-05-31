@@ -1,16 +1,15 @@
 <script setup lang="ts">
 /**
- * /tablet/residents/[id]/photo — take or pick a photo, add a caption, upload.
+ * /tablet/residents/[id]/photo — take or pick a photo, tag it, upload.
  *
- * Uses <input type="file" capture="environment"> so the tablet opens the
- * rear camera natively on iOS/Android. Falls back to the standard picker
- * on desktop / Chrome devtools.
+ * Tag picker is sourced from active 가족 알림 events. Default is "regular"
+ * (monthly family batch — used 90% of the time). Caregivers can switch to
+ * an event tag like 추석 or 어버이날 when uploading event-specific photos.
  *
- * After upload the photo lands in HQ's pending-approval queue; an HQ user
- * approves → backend fires a FamilyPhotoApproved event → worker sends it
- * to the resident's family Telegram contacts.
+ * After upload the photo lands in HQ's pending-approval queue; HQ approval
+ * → FamilyPhotoApproved event → worker sends to family Telegram contacts.
  */
-import { Loader2, Camera, X, CheckCircle2 } from "@lucide/vue";
+import { Loader2, Camera, X, CheckCircle2, Tag } from "@lucide/vue";
 
 definePageMeta({ layout: "tablet" });
 
@@ -23,9 +22,33 @@ const { data: detail } = await useAsyncData(`tablet-res-ph-${id.value}`, () =>
 );
 useHead({ title: () => `${detail.value?.full_name ?? ""} 사진 · 케어닥` });
 
+// Event tag picker — pulls active events so caregivers can attach the
+// upload to the right campaign. /v1/events is tablet-accessible.
+interface EventTag { id: string; name: string; tag: string | null; kind: string; status: string }
+interface EventPage { items: EventTag[] }
+const { data: events } = await useAsyncData("tablet-event-tags", () =>
+  $fetch<EventPage>("/api/tablet/v1/events", { query: { page: 1, page_size: 50 } }),
+);
+const tagOptions = computed(() => {
+  const seen = new Set<string>();
+  const out: { value: string; label: string }[] = [
+    { value: "regular", label: "정기 (월별)" },
+  ];
+  seen.add("regular");
+  for (const e of events.value?.items ?? []) {
+    if (e.status === "cancelled") continue;
+    const t = e.tag?.trim();
+    if (!t || seen.has(t)) continue;
+    seen.add(t);
+    out.push({ value: t, label: `${e.name} · ${t}` });
+  }
+  return out;
+});
+
 const file      = ref<File | null>(null);
 const preview   = ref<string | null>(null);
 const caption   = ref("");
+const tag       = ref("regular");
 const uploading = ref(false);
 const lastOk    = ref(false);
 
@@ -51,7 +74,7 @@ async function upload() {
   try {
     const form = new FormData();
     form.append("resident_id", id.value);
-    form.append("tag", "regular");
+    form.append("tag", tag.value || "regular");
     if (caption.value.trim()) form.append("caption", caption.value.trim());
     form.append("file", file.value);
     await $fetch("/api/tablet/v1/photos", { method: "POST", body: form });
@@ -74,6 +97,24 @@ onBeforeUnmount(() => {
   <div class="max-w-3xl mx-auto px-5 py-6">
     <h1 class="text-2xl font-bold mb-1">사진 업로드</h1>
     <p class="text-sm text-muted-foreground mb-5">{{ detail?.full_name }} 어르신</p>
+
+    <!-- Tag picker -->
+    <div class="mb-4">
+      <label class="text-sm font-semibold flex items-center gap-1.5 mb-1.5">
+        <Tag class="h-4 w-4" />
+        사진 태그
+      </label>
+      <select
+        v-model="tag"
+        class="w-full h-12 px-3 rounded-xl border border-input bg-background text-base focus:outline-none focus:border-primary"
+        :disabled="uploading"
+      >
+        <option v-for="t in tagOptions" :key="t.value" :value="t.value">{{ t.label }}</option>
+      </select>
+      <p class="text-xs text-muted-foreground mt-1">
+        보통 <b>정기 (월별)</b>를 선택합니다. 특별한 이벤트가 있을 때만 다른 태그를 선택하세요.
+      </p>
+    </div>
 
     <!-- Preview or capture button -->
     <div
