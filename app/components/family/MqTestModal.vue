@@ -76,12 +76,13 @@ const { data: dlq, refresh: refreshDlq } = await useAsyncData<DlqStatus | null>(
 const dlqBusy = ref(false);
 async function replayDlq() {
   if (dlqBusy.value) return;
-  if (!confirm("DLQ에 있는 모든 실패 메시지를 메인 큐로 다시 보냅니다. 진행할까요?")) return;
+  if (!confirm("DLQ에 있는 모든 실패 메시지를 메인 큐로 다시 보냅니다. 진행할까요?\n\n(참고: 테스트 시나리오 force_fail/network_fail/bad_image는 재시도 시 자동으로 happy로 변경되어 실제 Telegram 발송이 시도됩니다.)")) return;
   dlqBusy.value = true;
   try {
-    const r = await api.post<{ moved: number }>("/v1/mq-test/dlq/replay", {});
-    toast.success(`${r.moved}건 재시도 큐에 넣음`, "🔁 DLQ 재시도");
-    await refreshDlq();
+    const r = await api.post<{ moved: number; test_rewrites?: number }>("/v1/mq-test/dlq/replay", {});
+    const note = (r.test_rewrites ?? 0) > 0 ? ` (${r.test_rewrites}건은 happy로 변환)` : "";
+    toast.success(`${r.moved}건 재시도 큐에 넣음${note}`, "🔁 DLQ 재시도");
+    await Promise.all([refreshDlq(), refreshHistory()]);
   } catch (e: any) {
     toast.error(e?.data?.message ?? "재시도 실패", "오류");
   } finally {
@@ -103,12 +104,14 @@ async function purgeDlq() {
   }
 }
 
-// Poll the current run every 2s while it's in flight or waiting for a reply.
+// Poll every 2s while a run is in flight. Also refreshes the DLQ panel
+// and recent-history table so operator sees the failure pile + counts
+// update live as the worker drains the queue.
 let poller: ReturnType<typeof setInterval> | null = null;
 function startPolling() {
   stopPolling();
   poller = setInterval(async () => {
-    await refreshCurrent();
+    await Promise.all([refreshCurrent(), refreshDlq(), refreshHistory()]);
     const s = current.value?.status;
     if (s === "success" || s === "dlq" || s === "failed") {
       // Stop polling for status but keep polling for the reply if still missing.
@@ -132,9 +135,12 @@ async function fire() {
       scenario: selected.value,
     });
     currentRunId.value = run.id;
-    await refreshHistory();
+    await Promise.all([refreshHistory(), refreshDlq()]);
     startPolling();
-    toast.success(`${scenarios.find(s => s.id === selected.value)?.label ?? selected.value} 테스트 시작`, "🧪 MQ 테스트");
+    toast.success(
+      `${scenarios.find(s => s.id === selected.value)?.label ?? selected.value} 테스트 시작 (${run.expected_count ?? 1}건)`,
+      "🧪 MQ 테스트",
+    );
   } catch (e: any) {
     toast.error(e?.data?.message ?? "테스트 실행 실패", "오류");
   } finally {
@@ -394,7 +400,7 @@ const pipelineStages = computed(() => {
                     <th class="py-2 px-3 font-medium">시각</th>
                     <th class="py-2 px-3 font-medium">시나리오</th>
                     <th class="py-2 px-3 font-medium">상태</th>
-                    <th class="py-2 px-3 font-medium">시도</th>
+                    <th class="py-2 px-3 font-medium text-right">진행 (성공/실패/전체)</th>
                     <th class="py-2 px-3 font-medium">답장</th>
                   </tr>
                 </thead>
@@ -407,7 +413,16 @@ const pipelineStages = computed(() => {
                         {{ statusBadge(r.status).txt }}
                       </span>
                     </td>
-                    <td class="py-1.5 px-3 tabular-nums">{{ r.delivery_attempts }}</td>
+                    <td class="py-1.5 px-3 text-right tabular-nums whitespace-nowrap">
+                      <span class="text-emerald-700 dark:text-emerald-200">{{ r.success_count ?? 0 }}</span>
+                      <span class="text-muted-foreground"> / </span>
+                      <span class="text-rose-700 dark:text-rose-200">{{ r.failure_count ?? 0 }}</span>
+                      <span class="text-muted-foreground"> / {{ r.expected_count ?? 1 }}</span>
+                      <span
+                        v-if="(r.failure_count ?? 0) > 0"
+                        class="ml-1 text-[10px] text-rose-600 dark:text-rose-300"
+                      >({{ r.failure_count }} 미완료)</span>
+                    </td>
                     <td class="py-1.5 px-3 truncate max-w-[12rem]">{{ r.telegram_reply ?? "—" }}</td>
                   </tr>
                   <tr v-if="(history?.length ?? 0) === 0">
