@@ -14,9 +14,16 @@ useHead({ title: "로그인 · 케어닥" });
 
 const { pinLogin, rememberedEmail, forgetEmail } = useTablet();
 
+// Demo defaults so the tester can tap straight through. The seeded
+// `cg1.seoul-hub@demo.com` caregiver exists in the regional reseed; set
+// their PIN once in /settings/tablet (matching DEFAULT_PIN below) and the
+// 로그인 button will work on first tap.
+const DEFAULT_EMAIL = "cg1.seoul-hub@demo.com";
+const DEFAULT_PIN   = "1234";
+
 const remembered = ref(rememberedEmail());
-const email      = ref(remembered.value);
-const pin        = ref("");
+const email      = ref(remembered.value || DEFAULT_EMAIL);
+const pin        = ref(remembered.value ? "" : DEFAULT_PIN);
 const submitting = ref(false);
 const error      = ref<string | null>(null);
 
