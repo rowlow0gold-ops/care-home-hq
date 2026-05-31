@@ -516,9 +516,11 @@ const anyRunning = computed(() =>
                       <span v-if="r.child_count > 0" class="text-[10px] font-medium text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">
                         재시도 {{ r.child_count }}회
                       </span>
-                      <!-- 해결됨 only flips when an actual retry SUCCEEDED. -->
+                      <!-- 해결됨 / 미해결 — only when row had failures AND latest
+                           isn't still running. solved=true means the LATEST
+                           attempt is fully successful. -->
                       <span
-                        v-if="r.failure_count > 0"
+                        v-if="r.failure_count > 0 && r.status !== 'queued' && r.status !== 'running'"
                         class="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0"
                         :class="r.solved
                           ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200'
