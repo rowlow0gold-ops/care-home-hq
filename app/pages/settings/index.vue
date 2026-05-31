@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { Sun, Moon, User, Mail, Briefcase } from "@lucide/vue";
+import { Sun, Moon, User, Mail, Briefcase, Tablet } from "@lucide/vue";
 
 useHead({ title: "설정 · 케어닥 HQ" });
 
@@ -20,6 +20,24 @@ const roleLabel: Record<string, string> = {
     <header class="mb-6">
       <h1 class="text-3xl font-bold tracking-tight">설정</h1>
     </header>
+
+    <!-- Tablet management entry — BM + HQ -->
+    <NuxtLink
+      v-if="me?.role === 'branch_manager' || me?.role === 'hq' || me?.role === 'super_admin'"
+      to="/settings/tablet"
+      class="block mb-4 rounded-xl border bg-card hover:bg-muted/30 hover:border-primary transition-colors p-5"
+    >
+      <div class="flex items-center gap-3">
+        <div class="h-10 w-10 rounded-lg bg-primary/10 text-primary inline-flex items-center justify-center">
+          <Tablet class="h-5 w-5" />
+        </div>
+        <div class="flex-1 min-w-0">
+          <div class="font-semibold">태블릿 관리</div>
+          <div class="text-xs text-muted-foreground mt-0.5">요양보호사 태블릿 페어 코드 발급 + PIN 설정</div>
+        </div>
+        <span class="text-xs text-muted-foreground">→</span>
+      </div>
+    </NuxtLink>
 
     <div class="space-y-4">
       <!-- 내 정보 -->
