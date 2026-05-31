@@ -55,20 +55,32 @@ const selected = ref<string>("happy");
 const firing   = ref(false);
 
 // Master-mode event picker — populated lazily when modal opens in masterMode.
-interface PickerEv { id: string; name: string; kind: string; status: string }
+interface PickerEv { id: string; name: string; kind: string; status: string; scheduled_date?: string }
+interface PickerPage { items: PickerEv[]; total: number; page: number; page_size: number }
 const masterEvents      = ref<PickerEv[]>([]);
 const masterEventId     = ref<string>("");
 const masterEventsLoading = ref(false);
+const masterEventsError = ref<string | null>(null);
 async function loadMasterEvents() {
-  if (masterEventsLoading.value || masterEvents.value.length > 0) return;
+  if (masterEventsLoading.value) return;
   masterEventsLoading.value = true;
+  masterEventsError.value = null;
   try {
-    // Re-use the standard events list endpoint. We just need id+name+kind+status.
-    const list = await api.get<{ items: PickerEv[] } | PickerEv[]>("/v1/family-send-events", { page: 1, page_size: 200 });
-    const items = Array.isArray(list) ? list : (list.items ?? []);
-    masterEvents.value = items.filter(e => e.status !== "cancelled");
-  } catch { /* swallow — picker just stays empty */ }
-  finally { masterEventsLoading.value = false; }
+    // /v1/events is paged. Pull a big page so the picker covers everything.
+    const res = await api.get<PickerPage>("/v1/events", { page: 1, page_size: 200 });
+    const items = res?.items ?? [];
+    // Show every non-cancelled event; sort newest first so recent batches are on top.
+    masterEvents.value = items
+      .filter(e => e.status !== "cancelled")
+      .sort((a, b) => (b.scheduled_date ?? "").localeCompare(a.scheduled_date ?? ""));
+    if (masterEvents.value.length === 0) {
+      masterEventsError.value = "표시할 이벤트가 없습니다.";
+    }
+  } catch (e: any) {
+    masterEventsError.value = e?.data?.message ?? e?.message ?? "이벤트 목록을 불러오지 못했습니다";
+  } finally {
+    masterEventsLoading.value = false;
+  }
 }
 
 // Paged + filtered runs list.
@@ -276,16 +288,32 @@ const anyRunning = computed(() =>
         <div class="flex-1 overflow-y-auto p-5 space-y-5">
           <!-- Master-mode event picker — pick an event, then run scenario below -->
           <div v-if="masterMode">
-            <h3 class="text-xs font-semibold text-muted-foreground uppercase mb-2">대상 이벤트</h3>
-            <select
-              v-model="masterEventId"
-              class="h-10 w-full px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary mb-3"
-            >
-              <option value="">이벤트 선택…</option>
-              <option v-for="e in masterEvents" :key="e.id" :value="e.id">
-                {{ e.name }} ({{ e.kind === 'regular' ? '정기' : '비정기' }} · {{ e.status }})
-              </option>
-            </select>
+            <h3 class="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center justify-between">
+              <span>대상 이벤트 ({{ masterEvents.length }})</span>
+              <button type="button" class="text-[10px] font-normal normal-case text-muted-foreground hover:text-foreground inline-flex items-center gap-1" @click="masterEvents = []; loadMasterEvents()">
+                <RefreshCw class="h-3 w-3" :class="masterEventsLoading ? 'animate-spin' : ''" />
+                다시 불러오기
+              </button>
+            </h3>
+            <div class="relative mb-3">
+              <select
+                v-model="masterEventId"
+                :disabled="masterEventsLoading || masterEvents.length === 0"
+                class="h-10 w-full px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary disabled:opacity-60"
+              >
+                <option value="">
+                  <template v-if="masterEventsLoading">불러오는 중…</template>
+                  <template v-else-if="masterEvents.length === 0">사용 가능한 이벤트 없음</template>
+                  <template v-else>이벤트 선택…</template>
+                </option>
+                <option v-for="e in masterEvents" :key="e.id" :value="e.id">
+                  {{ e.name }} · {{ e.kind === 'regular' ? '정기' : '비정기' }}{{ e.scheduled_date ? ` · ${e.scheduled_date}` : '' }} · {{ e.status }}
+                </option>
+              </select>
+            </div>
+            <div v-if="masterEventsError" class="-mt-2 mb-3 text-[11px] text-rose-600 dark:text-rose-300">
+              {{ masterEventsError }}
+            </div>
           </div>
 
           <!-- Scenario picker + execute (per-event mode AND master mode w/ event picked) -->
