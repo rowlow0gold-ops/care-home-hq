@@ -12,7 +12,7 @@
 import {
   X, FlaskConical, Loader2, CheckCircle2, AlertTriangle, Skull,
   Send, Network, Image as ImageIcon, MessageSquare, RefreshCw,
-  RotateCcw, Search, ChevronLeft, ChevronRight,
+  RotateCcw, Search, ChevronLeft, ChevronRight, Ban,
 } from "@lucide/vue";
 
 interface MqRun {
@@ -31,6 +31,7 @@ interface MqRun {
   expected_count:      number;
   success_count:       number;
   failure_count:       number;
+  failed_photo_ids:    string[];
 }
 
 const props = defineProps<{
@@ -52,6 +53,23 @@ const scenarios = [
 
 const selected = ref<string>("happy");
 const firing   = ref(false);
+
+// Master-mode event picker — populated lazily when modal opens in masterMode.
+interface PickerEv { id: string; name: string; kind: string; status: string }
+const masterEvents      = ref<PickerEv[]>([]);
+const masterEventId     = ref<string>("");
+const masterEventsLoading = ref(false);
+async function loadMasterEvents() {
+  if (masterEventsLoading.value || masterEvents.value.length > 0) return;
+  masterEventsLoading.value = true;
+  try {
+    // Re-use the standard events list endpoint. We just need id+name+kind+status.
+    const list = await api.get<{ items: PickerEv[] } | PickerEv[]>("/v1/family-send-events", { page: 1, page_size: 200 });
+    const items = Array.isArray(list) ? list : (list.items ?? []);
+    masterEvents.value = items.filter(e => e.status !== "cancelled");
+  } catch { /* swallow — picker just stays empty */ }
+  finally { masterEventsLoading.value = false; }
+}
 
 // Paged + filtered runs list.
 interface RunPage { items: MqRun[]; total: number; page: number; page_size: number }
@@ -107,6 +125,7 @@ watch(() => props.open, async (o) => {
   if (o) {
     await refreshHistory();
     startPolling();
+    if (masterMode.value) await loadMasterEvents();
   } else {
     stopPolling();
   }
@@ -114,11 +133,13 @@ watch(() => props.open, async (o) => {
 onUnmounted(stopPolling);
 
 async function fire(scenario: string) {
-  if (!props.eventId || firing.value) return;
+  // Per-event mode uses props.eventId; master mode uses masterEventId.
+  const targetEventId = props.eventId || masterEventId.value;
+  if (!targetEventId || firing.value) return;
   firing.value = true;
   try {
     const run = await api.post<MqRun>("/v1/mq-test/run", {
-      event_id: props.eventId,
+      event_id: targetEventId,
       scenario,
     });
     // Reset filters to default so the new run is visible.
@@ -138,24 +159,53 @@ async function fire(scenario: string) {
   }
 }
 
-const retryingId = ref<string | null>(null);
+const retryingId  = ref<string | null>(null);
+const abortingId  = ref<string | null>(null);
+
+// Smart retry — if the run has tracked failed_photo_ids, re-fire ONLY those
+// (e.g. 60-fanout, 25 failed → backend creates a new run of 25). Otherwise
+// fall back to re-running the whole scenario (rewriting failing scenarios
+// to 'happy' so the operator actually sees a delivery).
 async function retryRow(run: MqRun) {
   if (retryingId.value) return;
   retryingId.value = run.id;
   try {
-    const newRun = await api.post<MqRun>("/v1/mq-test/run", {
-      event_id: run.event_id,
-      scenario: run.scenario === "force_fail" || run.scenario === "network_fail" || run.scenario === "bad_image"
-        ? "happy"  // retrying a deliberate-fail scenario actually delivers
-        : run.scenario,
-    });
+    let newRun: MqRun;
+    if ((run.failed_photo_ids?.length ?? 0) > 0) {
+      newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/retry-failed`, {});
+      toast.success(`실패 ${run.failed_photo_ids.length}건만 재전송`, "🎯 스마트 재시도");
+    } else {
+      newRun = await api.post<MqRun>("/v1/mq-test/run", {
+        event_id: run.event_id,
+        scenario: run.scenario === "force_fail" || run.scenario === "network_fail" || run.scenario === "bad_image"
+          ? "happy"
+          : run.scenario,
+      });
+      toast.success(`재시도 시작 (${newRun.expected_count ?? 1}건)`, "🔁 재시도");
+    }
     await refreshHistory();
     startPolling();
-    toast.success(`재시도 시작 (${newRun.expected_count ?? 1}건)`, "🔁 재시도");
   } catch (e: any) {
     toast.error(e?.data?.message ?? "재시도 실패", "오류");
   } finally {
     retryingId.value = null;
+  }
+}
+
+// Strand-recovery — for runs stuck in queued/running (worker crash, broker
+// hiccup). Marks the row failed so it stops blocking the operator's view.
+async function abortRow(run: MqRun) {
+  if (abortingId.value) return;
+  if (!confirm(`정말 강제 종료하시겠습니까?\n진행중 ${run.expected_count - run.success_count - run.failure_count}건이 실패로 표시됩니다.`)) return;
+  abortingId.value = run.id;
+  try {
+    await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/abort`, {});
+    await refreshHistory();
+    toast.success("강제 종료됨", "🛑");
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "강제 종료 실패", "오류");
+  } finally {
+    abortingId.value = null;
   }
 }
 
@@ -224,8 +274,22 @@ const anyRunning = computed(() =>
         </div>
 
         <div class="flex-1 overflow-y-auto p-5 space-y-5">
-          <!-- Scenario picker + execute (per-event mode only) -->
-          <div v-if="!masterMode">
+          <!-- Master-mode event picker — pick an event, then run scenario below -->
+          <div v-if="masterMode">
+            <h3 class="text-xs font-semibold text-muted-foreground uppercase mb-2">대상 이벤트</h3>
+            <select
+              v-model="masterEventId"
+              class="h-10 w-full px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary mb-3"
+            >
+              <option value="">이벤트 선택…</option>
+              <option v-for="e in masterEvents" :key="e.id" :value="e.id">
+                {{ e.name }} ({{ e.kind === 'regular' ? '정기' : '비정기' }} · {{ e.status }})
+              </option>
+            </select>
+          </div>
+
+          <!-- Scenario picker + execute (per-event mode AND master mode w/ event picked) -->
+          <div v-if="!masterMode || !!masterEventId">
             <h3 class="text-xs font-semibold text-muted-foreground uppercase mb-2">시나리오</h3>
             <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
               <button
@@ -247,7 +311,7 @@ const anyRunning = computed(() =>
             <button
               type="button"
               class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-60"
-              :disabled="firing || !eventId"
+              :disabled="firing || (!eventId && !masterEventId)"
               @click="fire(selected)"
             >
               <Loader2 v-if="firing" class="h-4 w-4 animate-spin" />
@@ -313,16 +377,33 @@ const anyRunning = computed(() =>
                       </span>
                       <span class="text-[10px] text-muted-foreground tabular-nums shrink-0">{{ fmtTime(r.queued_at) }}</span>
                     </div>
-                    <button
-                      type="button"
-                      class="h-7 px-2.5 rounded-md border border-input bg-background text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50 shrink-0"
-                      :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running'"
-                      @click="retryRow(r)"
-                    >
-                      <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
-                      <RotateCcw v-else class="h-3 w-3" />
-                      재시도
-                    </button>
+                    <div class="flex items-center gap-1.5 shrink-0">
+                      <button
+                        v-if="r.status === 'queued' || r.status === 'running'"
+                        type="button"
+                        class="h-7 px-2.5 rounded-md border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-rose-100 dark:hover:bg-rose-950/50 disabled:opacity-50"
+                        :disabled="abortingId === r.id"
+                        :title="'멈춘 실행 강제 종료 (worker 다운 등)'"
+                        @click="abortRow(r)"
+                      >
+                        <Loader2 v-if="abortingId === r.id" class="h-3 w-3 animate-spin" />
+                        <Ban v-else class="h-3 w-3" />
+                        강제 종료
+                      </button>
+                      <button
+                        type="button"
+                        class="h-7 px-2.5 rounded-md border border-input bg-background text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50"
+                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running'"
+                        :title="(r.failed_photo_ids?.length ?? 0) > 0
+                          ? `실패한 ${r.failed_photo_ids.length}건만 다시 전송`
+                          : '같은 시나리오로 다시 실행'"
+                        @click="retryRow(r)"
+                      >
+                        <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
+                        <RotateCcw v-else class="h-3 w-3" />
+                        {{ (r.failed_photo_ids?.length ?? 0) > 0 ? `재전송 (${r.failed_photo_ids.length})` : '재시도' }}
+                      </button>
+                    </div>
                   </div>
 
                   <!-- Per-row progress bar -->
