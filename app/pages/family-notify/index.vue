@@ -125,23 +125,15 @@ async function sendNow(row: ScheduleRow) {
   }
 }
 
-// Test-fire one photo to the admin's Telegram (TELEGRAM_DEFAULT_CHAT_ID).
-// Doesn't touch real recipients or change the batch state.
-const testingId = ref<string | null>(null);
-async function testNow(row: ScheduleRow) {
-  if (testingId.value) return;
-  testingId.value = row.id;
-  try {
-    await row.test_endpoint();
-    toast.success(
-      `'${row.name}' 테스트 메시지를 큐에 넣었습니다. 잠시 후 관리자 Telegram을 확인하세요.`,
-      "🧪 테스트 전송됨",
-    );
-  } catch (e: any) {
-    toast.error(e?.data?.message ?? "테스트 실패", "오류");
-  } finally {
-    testingId.value = null;
-  }
+// Open MQ test modal — full controller with scenario picker + live status.
+const testingId    = ref<string | null>(null); // for button spinner (modal handles the fire)
+const testOpen     = ref(false);
+const testEventId  = ref<string | null>(null);
+const testBatchName = ref<string>("");
+function openTest(row: ScheduleRow) {
+  testEventId.value   = row.id;
+  testBatchName.value = row.name;
+  testOpen.value      = true;
 }
 
 // ─── 비정기 추가 ───────────────────────────────────────────────────────────
@@ -345,13 +337,11 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
                 <button
                   v-if="row.testable"
                   type="button"
-                  class="h-8 px-2.5 rounded-md border border-amber-400/60 text-amber-700 dark:text-amber-300 text-xs font-semibold inline-flex items-center gap-1 hover:bg-amber-50 dark:hover:bg-amber-900/30 disabled:opacity-50"
-                  :disabled="testingId === row.id"
-                  :title="`'${row.name}' 1장을 관리자 Telegram으로 테스트 발송 — MQ 파이프라인 검증`"
-                  @click="testNow(row)"
+                  class="h-8 px-2.5 rounded-md border border-amber-400/60 text-amber-700 dark:text-amber-300 text-xs font-semibold inline-flex items-center gap-1 hover:bg-amber-50 dark:hover:bg-amber-900/30"
+                  :title="`'${row.name}' MQ 파이프라인 테스트 컨트롤러 열기`"
+                  @click="openTest(row)"
                 >
-                  <Loader2 v-if="testingId === row.id" class="h-3 w-3 animate-spin" />
-                  <FlaskConical v-else class="h-3 w-3" />
+                  <FlaskConical class="h-3 w-3" />
                   테스트
                 </button>
                 <button
@@ -404,6 +394,12 @@ const statusLabel: Record<ScheduleRow["status"], string> = {
         </div>
       </div>
     </div>
+
+    <MqTestModal
+      v-model:open="testOpen"
+      :event-id="testEventId"
+      :batch-name="testBatchName"
+    />
 
     <!-- 비정기 추가 modal -->
     <Teleport to="body">
