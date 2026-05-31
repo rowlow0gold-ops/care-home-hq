@@ -17,6 +17,7 @@ import {
 
 interface MqRun {
   id:                  string;
+  parent_run_id:       string | null;
   event_id:            string | null;
   scenario:            string;
   status:              "queued" | "running" | "success" | "failed" | "dlq";
@@ -32,9 +33,10 @@ interface MqRun {
   success_count:       number;
   failure_count:       number;
   failed_photo_ids:    string[];
-  /// TRUE once any retry has been spawned from this run. Drives the
-  /// 해결됨 / 미해결 badge on failed rows.
-  has_successor:       boolean;
+  /// COUNT of direct retry children — drives the chevron visibility.
+  child_count:         number;
+  /// TRUE iff at least one child succeeded cleanly. Drives 해결됨 badge.
+  solved:              boolean;
 }
 
 const props = defineProps<{
@@ -109,9 +111,12 @@ watch(pageSize, () => { page.value = 1; });
 // scenario/status filters still work). This keeps the runs panel as a
 // single global timeline.
 
+// Top list shows ROOTS only (parent_run_id IS NULL). Retries appear inside
+// their parent row's foldable history, not in the flat list.
 const { data: paged, refresh: refreshHistory } = await useAsyncData<RunPage>(
   () => `mq-runs-${fAppliedScenario.value}-${fAppliedStatus.value}-${page.value}-${pageSize.value}`,
   () => api.get<RunPage>("/v1/mq-test/runs", {
+    roots_only: true,
     scenario:  fAppliedScenario.value || undefined,
     status:    fAppliedStatus.value || undefined,
     page:      page.value,
@@ -199,21 +204,20 @@ async function retryFailedRow(run: MqRun) {
     toast.error("실패한 항목이 없습니다", "재시도 불가");
     return;
   }
-  if (run.has_successor) {
-    toast.error("이미 재시도되어 해결됨으로 표시된 기록입니다.", "재시도 불가");
-    return;
-  }
   retryingId.value = run.id;
   try {
     const newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/retry-failed`, {});
     const tracked = (run.failed_photo_ids?.length ?? 0) > 0;
     toast.success(
       tracked
-        ? `추적된 실패 ${run.failed_photo_ids.length}건 재전송 (${newRun.expected_count}건 큐)`
-        : `legacy 폴백: 배치에서 ${newRun.expected_count}건 다시 선택`,
+        ? `실패 ${run.failed_photo_ids.length}건 재전송 (#${(run.child_count ?? 0) + 1})`
+        : `legacy 폴백 ${newRun.expected_count}건 (#${(run.child_count ?? 0) + 1})`,
       "🎯 실패만 재시도",
     );
-    afterRetry();
+    expandedRuns[run.id] = true;
+    await refreshHistory();
+    await ensureChildren(run.id, true);
+    startPolling();
   } catch (e: any) {
     toast.error(e?.data?.message ?? "실패만 재시도 실패", "오류");
   } finally {
@@ -229,11 +233,12 @@ async function retryAllRow(run: MqRun) {
   }
   retryingId.value = run.id;
   try {
-    // /retry-all sets parent_run_id on the new row so the original gets
-    // has_successor=true and its badge flips to 해결됨.
     const newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/retry-all`, {});
-    toast.success(`전체 ${newRun.expected_count}건 재실행`, "🔁 전체 재시도");
-    afterRetry();
+    toast.success(`전체 ${newRun.expected_count}건 재실행 (#${(run.child_count ?? 0) + 1})`, "🔁 전체 재시도");
+    expandedRuns[run.id] = true;
+    await refreshHistory();          // bumps the parent's child_count
+    await ensureChildren(run.id, true); // refetches the children list
+    startPolling();
   } catch (e: any) {
     toast.error(e?.data?.message ?? "전체 재시도 실패", "오류");
   } finally {
@@ -267,6 +272,33 @@ async function abortRow(run: MqRun) {
   } finally {
     abortingId.value = null;
   }
+}
+
+// =============================================================================
+// Foldable retry history — every top-level row can unfold its #1/#2/#3
+// retries. Lazy-loaded the first time the user expands.
+// =============================================================================
+const expandedRuns     = reactive<Record<string, boolean>>({});
+const childRuns        = reactive<Record<string, MqRun[]>>({});
+const childRunsLoading = reactive<Record<string, boolean>>({});
+
+async function ensureChildren(parentId: string, force = false) {
+  if (childRunsLoading[parentId]) return;
+  if (!force && childRuns[parentId]) return;
+  childRunsLoading[parentId] = true;
+  try {
+    const res = await api.get<RunPage>("/v1/mq-test/runs", {
+      parent_run_id: parentId,
+      page:          1,
+      page_size:     50,
+    });
+    childRuns[parentId] = res.items ?? [];
+  } catch { childRuns[parentId] = []; }
+  finally { childRunsLoading[parentId] = false; }
+}
+async function toggleExpand(run: MqRun) {
+  expandedRuns[run.id] = !expandedRuns[run.id];
+  if (expandedRuns[run.id]) await ensureChildren(run.id);
 }
 
 function scenarioLabel(id: string) {
@@ -453,21 +485,35 @@ const anyRunning = computed(() =>
                 조건에 맞는 실행 기록이 없습니다.
               </div>
               <ul v-else class="divide-y">
-                <li v-for="r in history" :key="r.id" class="p-3 hover:bg-muted/30">
+                <li v-for="r in history" :key="r.id" class="hover:bg-muted/30">
+                  <!-- Whole row header is clickable to toggle the foldable retry history. -->
+                  <div
+                    class="p-3 cursor-pointer select-none"
+                    role="button"
+                    :aria-expanded="!!expandedRuns[r.id]"
+                    @click="toggleExpand(r)"
+                  >
                   <div class="flex items-center justify-between gap-3 mb-2 flex-wrap">
                     <div class="flex items-center gap-2 min-w-0 flex-1">
+                      <!-- Chevron — always present so the fold control is discoverable. -->
+                      <span class="h-6 w-6 -ml-1 rounded inline-flex items-center justify-center text-muted-foreground shrink-0">
+                        <Loader2 v-if="childRunsLoading[r.id]" class="h-3.5 w-3.5 animate-spin" />
+                        <ChevronDown v-else-if="expandedRuns[r.id]" class="h-3.5 w-3.5" />
+                        <ChevronRight v-else class="h-3.5 w-3.5" />
+                      </span>
                       <span class="text-sm font-semibold truncate">{{ scenarioLabel(r.scenario) }}</span>
-                      <!-- 해결됨 / 미해결 badge — only on rows that had failures.
-                           Flips to 해결됨 once the operator has spawned a retry
-                           (parent_run_id set on the new run → has_successor=true). -->
+                      <span v-if="r.child_count > 0" class="text-[10px] font-medium text-muted-foreground bg-muted rounded px-1.5 py-0.5 shrink-0">
+                        재시도 {{ r.child_count }}회
+                      </span>
+                      <!-- 해결됨 only flips when an actual retry SUCCEEDED. -->
                       <span
                         v-if="r.failure_count > 0"
                         class="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0"
-                        :class="r.has_successor
+                        :class="r.solved
                           ? 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900/30 dark:text-emerald-200'
                           : 'bg-rose-100 text-rose-800 dark:bg-rose-900/30 dark:text-rose-200'"
                       >
-                        {{ r.has_successor ? '해결됨' : '미해결' }}
+                        {{ r.solved ? '해결됨' : '미해결' }}
                       </span>
                       <span
                         class="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium shrink-0"
@@ -480,47 +526,43 @@ const anyRunning = computed(() =>
                       </span>
                       <span class="text-[10px] text-muted-foreground tabular-nums shrink-0">{{ fmtTime(r.queued_at) }}</span>
                     </div>
-<div class="flex items-center gap-1.5 shrink-0">
+<div class="flex items-center gap-1.5 shrink-0" @click.stop>
                       <button
                         v-if="r.status === 'queued' || r.status === 'running'"
                         type="button"
                         class="h-7 px-2.5 rounded-md border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-rose-100 dark:hover:bg-rose-950/50 disabled:opacity-50"
                         :disabled="abortingId === r.id"
-                        :title="'멈춘 실행 강제 종료 (worker 다운 등)'"
+                        :title="'멈춘 실행 강제 종료 (worker 다운 등) · RabbitMQ 잔여 메시지도 자동 무시'"
                         @click="abortRow(r)"
                       >
                         <Loader2 v-if="abortingId === r.id" class="h-3 w-3 animate-spin" />
                         <Ban v-else class="h-3 w-3" />
                         강제 종료
                       </button>
-                      <!-- 전체 재시도 — always available when there's an event -->
+                      <!-- 전체 재시도 — always available (stacks as #N child) -->
                       <button
                         v-if="r.event_id"
                         type="button"
                         class="h-7 px-2.5 rounded-md border border-input bg-background text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50"
                         :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running'"
-                        :title="`이 배치의 모든 ${r.expected_count}건을 다시 전송 (성공 여부 무관)`"
+                        :title="`이 배치의 모든 ${r.expected_count}건을 다시 전송 (재시도 #${(r.child_count ?? 0) + 1}로 기록)`"
                         @click="retryAllRow(r)"
                       >
                         <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
                         <RotateCcw v-else class="h-3 w-3" />
                         전체 재시도
                       </button>
-                      <!-- 실패만 — disabled when no failures or already 해결됨 -->
+                      <!-- 실패만 — always available when failures exist (stacks as #N) -->
                       <button
                         type="button"
                         class="h-7 px-2.5 rounded-md border text-[11px] font-semibold inline-flex items-center gap-1 disabled:opacity-50"
-                        :class="(r.failure_count > 0 && !r.has_successor)
+                        :class="r.failure_count > 0
                           ? 'border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 hover:bg-rose-100 dark:hover:bg-rose-950/50'
                           : 'border-input bg-background text-muted-foreground'"
-                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running' || r.failure_count === 0 || r.has_successor"
-                        :title="r.has_successor
-                          ? '이미 재시도되어 해결됨으로 표시된 기록입니다.'
-                          : (r.failed_photo_ids?.length ?? 0) > 0
-                            ? `실패한 ${r.failed_photo_ids.length}건만 다시 전송`
-                            : r.failure_count > 0
-                              ? `실패 ${r.failure_count}건만큼 재전송`
-                              : '실패한 항목이 없습니다.'"
+                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running' || r.failure_count === 0"
+                        :title="r.failure_count > 0
+                          ? `실패 ${r.failure_count}건만 다시 전송 (재시도 #${(r.child_count ?? 0) + 1}로 기록)`
+                          : '실패한 항목이 없습니다.'"
                         @click="retryFailedRow(r)"
                       >
                         <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
@@ -570,6 +612,52 @@ const anyRunning = computed(() =>
                       :title="r.last_error"
                     >
                       {{ r.last_error }}
+                    </div>
+                  </div>
+                  </div><!-- /clickable header -->
+
+                  <!-- Foldable retry history — #1, #2, #3 attempts by queued_at -->
+                  <div v-if="expandedRuns[r.id]" class="border-t bg-muted/20 p-3" @click.stop>
+                    <div v-if="childRunsLoading[r.id] && !childRuns[r.id]" class="text-[11px] text-muted-foreground inline-flex items-center gap-1">
+                      <Loader2 class="h-3 w-3 animate-spin" /> 재시도 이력을 불러오는 중…
+                    </div>
+                    <div v-else-if="(childRuns[r.id]?.length ?? 0) === 0" class="text-[11px] text-muted-foreground">
+                      재시도 이력이 없습니다. 위 버튼으로 첫 재시도를 만들 수 있습니다.
+                    </div>
+                    <div v-else class="space-y-2">
+                      <div
+                        v-for="(c, idx) in childRuns[r.id]"
+                        :key="c.id"
+                        class="rounded-md border bg-background/50 p-2"
+                      >
+                        <div class="flex items-center justify-between gap-2 flex-wrap mb-1">
+                          <div class="flex items-center gap-1.5 min-w-0 flex-1">
+                            <span class="text-[11px] font-semibold text-primary shrink-0">#{{ idx + 1 }}</span>
+                            <span class="text-[12px] font-semibold truncate">{{ scenarioLabel(c.scenario) }}</span>
+                            <span
+                              class="inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-medium shrink-0"
+                              :class="statusBadge(c.status).cls"
+                            >
+                              <Loader2 v-if="c.status === 'running' || c.status === 'queued'" class="h-2.5 w-2.5 animate-spin" />
+                              <CheckCircle2 v-else-if="c.status === 'success' && c.failure_count === 0" class="h-2.5 w-2.5" />
+                              <AlertTriangle v-else-if="c.status === 'dlq' || c.failure_count > 0" class="h-2.5 w-2.5" />
+                              {{ statusBadge(c.status).txt }}
+                            </span>
+                            <span class="text-[10px] text-muted-foreground tabular-nums shrink-0">{{ fmtTime(c.queued_at) }}</span>
+                          </div>
+                          <span class="text-[10px] tabular-nums text-muted-foreground whitespace-nowrap">
+                            <span class="text-emerald-700 dark:text-emerald-200">성공 <span class="font-semibold">{{ c.success_count }}</span></span>
+                            <span class="opacity-50"> · </span>
+                            <span class="text-rose-700 dark:text-rose-200">실패 <span class="font-semibold">{{ c.failure_count }}</span></span>
+                            <span class="opacity-50"> · </span>
+                            <span>전체 <span class="font-semibold">{{ c.expected_count }}</span></span>
+                          </span>
+                        </div>
+                        <div class="h-1.5 rounded-full bg-muted overflow-hidden flex">
+                          <div class="bg-emerald-500 h-full transition-all" :style="{ width: pct(c.success_count, c.expected_count) }" />
+                          <div class="bg-rose-500    h-full transition-all" :style="{ width: pct(c.failure_count, c.expected_count) }" />
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </li>
