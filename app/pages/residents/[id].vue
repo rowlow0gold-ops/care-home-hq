@@ -542,12 +542,6 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
             <option value="regular">정기 (월별)</option>
             <option value="custom">비정기</option>
           </select>
-          <select v-model="phStatus" class="h-9 px-2 rounded-md border border-input bg-background text-sm">
-            <option value="">전체 상태</option>
-            <option value="pending">대기중</option>
-            <option value="approved">승인됨</option>
-            <option value="rejected">반려됨</option>
-          </select>
           <button type="button" class="h-9 px-3 rounded-md bg-primary text-primary-foreground text-sm font-medium" @click="phApply">
             필터 적용
           </button>
@@ -567,17 +561,7 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
             >
               <img :src="p.data_url" :alt="p.caption ?? ''" class="w-full aspect-square object-cover bg-muted group-hover:scale-[1.02] transition-transform" loading="lazy" />
               <figcaption class="p-2 text-[11px] space-y-0.5">
-                <div class="flex items-center justify-between gap-1">
-                  <span
-                    class="inline-flex items-center rounded-full px-1.5 py-0.5 text-[9px] font-medium"
-                    :class="p.status === 'approved'
-                      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'
-                      : p.status === 'rejected'
-                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
-                        : 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-200'"
-                  >{{ p.status === 'approved' ? '승인' : p.status === 'rejected' ? '반려' : '대기' }}</span>
-                  <span v-if="p.tag" class="text-muted-foreground truncate">{{ p.tag }}</span>
-                </div>
+                <div v-if="p.tag" class="text-muted-foreground truncate">{{ p.tag }}</div>
                 <div class="text-muted-foreground text-[10px] tabular-nums">
                   {{ new Date(p.taken_at).toLocaleString("ko-KR", { dateStyle: "short", timeStyle: "short" }) }}
                 </div>
@@ -643,7 +627,6 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
           <div class="text-xs text-white/60 tabular-nums">
             {{ new Date(lightboxPhoto.taken_at).toLocaleString("ko-KR", { dateStyle: "full", timeStyle: "short" }) }}
             <span v-if="lightboxPhoto.tag"> · {{ lightboxPhoto.tag }}</span>
-            <span v-if="lightboxPhoto.status"> · {{ lightboxPhoto.status === 'approved' ? '승인됨' : lightboxPhoto.status === 'rejected' ? '반려됨' : '대기중' }}</span>
             <span class="ml-2 opacity-70">({{ (lightboxIndex ?? 0) + 1 }} / {{ phPaged?.items?.length ?? 0 }})</span>
           </div>
           <div v-if="lightboxPhoto.caption">{{ lightboxPhoto.caption }}</div>
