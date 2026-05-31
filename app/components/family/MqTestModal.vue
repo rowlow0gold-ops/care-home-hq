@@ -10,8 +10,8 @@
  *   Bottom: DLQ panel (counts + global 재시도/비우기)
  */
 import {
-  X, FlaskConical, Loader2, CheckCircle2, AlertTriangle, Skull,
-  Send, Network, Image as ImageIcon, MessageSquare, RefreshCw,
+  X, FlaskConical, Loader2, CheckCircle2, AlertTriangle,
+  CheckCheck, MinusCircle, XCircle, MessageSquare, RefreshCw,
   RotateCcw, Search, ChevronLeft, ChevronRight, Ban,
 } from "@lucide/vue";
 
@@ -45,13 +45,12 @@ const api   = useApi();
 const toast = useToast();
 
 const scenarios = [
-  { id: "happy",        label: "정상 발송 (전체)",      icon: Send,      hint: "배치 내 모든 어르신 사진을 관리자 Telegram으로 전송. SVG는 자동 PNG 대체. N건 동시 전송." },
-  { id: "force_fail",   label: "강제 실패 → DLQ",       icon: Skull,     hint: "Worker가 Telegram 호출 전 Err 반환. 3회 재시도 후 DLQ. 1건만 실행." },
-  { id: "network_fail", label: "네트워크 장애",         icon: Network,   hint: "네트워크 장애 시뮬레이션. 재시도 + DLQ 동작 검증. 1건만 실행." },
-  { id: "bad_image",    label: "잘못된 이미지 (전체)",  icon: ImageIcon, hint: "원본 SVG를 그대로 전송 → Telegram IMAGE_PROCESS_FAILED. N건 모두 실패 + DLQ." },
+  { id: "p100", label: "100% 성공", icon: CheckCheck,   hint: "모든 메시지를 관리자 Telegram으로 정상 전송. SVG는 자동 PNG 대체. N건 모두 성공." },
+  { id: "p50",  label: "50% 성공",  icon: MinusCircle,  hint: "절반은 성공, 절반은 의도된 실패 → DLQ. 스마트 재시도 검증용." },
+  { id: "p0",   label: "0% 성공",   icon: XCircle,      hint: "N건 모두 실패 → 3회 재시도 → DLQ. 재시도/복구 흐름 전체 검증." },
 ];
 
-const selected = ref<string>("happy");
+const selected = ref<string>("p100");
 const firing   = ref(false);
 
 // Master-mode event picker — populated lazily when modal opens in masterMode.
@@ -99,20 +98,22 @@ function applyFilters() {
 }
 watch(pageSize, () => { page.value = 1; });
 
-// When props.eventId is set the modal is scoped to ONE event (per-row mode).
-// When null/empty, it's the 마스터 테스트 view showing ALL events' runs.
-const masterMode = computed(() => !props.eventId);
+// Unified UI: there's no longer a separate "master mode". Both the per-row
+// [테스트] button and the 마스터 테스트 button open this same modal — the
+// only difference is that the per-row button pre-fills `masterEventId` so
+// the executions list is already filtered to that event. The user can clear
+// the picker to see all events' runs at any time.
 
 const { data: paged, refresh: refreshHistory } = await useAsyncData<RunPage>(
-  () => `mq-runs-${props.eventId ?? "all"}-${fAppliedScenario.value}-${fAppliedStatus.value}-${page.value}-${pageSize.value}`,
+  () => `mq-runs-${masterEventId.value || "all"}-${fAppliedScenario.value}-${fAppliedStatus.value}-${page.value}-${pageSize.value}`,
   () => api.get<RunPage>("/v1/mq-test/runs", {
-    event_id:  props.eventId || undefined,
+    event_id:  masterEventId.value || undefined,
     scenario:  fAppliedScenario.value || undefined,
     status:    fAppliedStatus.value || undefined,
     page:      page.value,
     page_size: pageSize.value,
   }),
-  { watch: [() => props.eventId, fAppliedScenario, fAppliedStatus, page, pageSize], default: () => ({ items: [], total: 0, page: 1, page_size: 10 }), lazy: true },
+  { watch: [masterEventId, fAppliedScenario, fAppliedStatus, page, pageSize], default: () => ({ items: [], total: 0, page: 1, page_size: 10 }), lazy: true },
 );
 const history     = computed(() => paged.value?.items ?? []);
 const total       = computed(() => paged.value?.total ?? 0);
@@ -135,9 +136,14 @@ function stopPolling() {
 }
 watch(() => props.open, async (o) => {
   if (o) {
+    // Per-row clicks pass an eventId — pre-fill the picker with it so the
+    // executions list is auto-filtered. Master button passes null → empty
+    // picker so the user sees every event's runs.
+    masterEventId.value = props.eventId ?? "";
+    // Always load the picker so the user can change events without closing.
+    await loadMasterEvents();
     await refreshHistory();
     startPolling();
-    if (masterMode.value) await loadMasterEvents();
   } else {
     stopPolling();
   }
@@ -145,9 +151,13 @@ watch(() => props.open, async (o) => {
 onUnmounted(stopPolling);
 
 async function fire(scenario: string) {
-  // Per-event mode uses props.eventId; master mode uses masterEventId.
-  const targetEventId = props.eventId || masterEventId.value;
-  if (!targetEventId || firing.value) return;
+  // Always reads from the picker (which the per-row button pre-fills).
+  const targetEventId = masterEventId.value;
+  if (!targetEventId) {
+    toast.error("대상 이벤트를 먼저 선택하세요", "이벤트 필요");
+    return;
+  }
+  if (firing.value) return;
   firing.value = true;
   try {
     const run = await api.post<MqRun>("/v1/mq-test/run", {
@@ -187,11 +197,13 @@ async function retryRow(run: MqRun) {
       newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/retry-failed`, {});
       toast.success(`실패 ${run.failed_photo_ids.length}건만 재전송`, "🎯 스마트 재시도");
     } else {
+      // Fallback path: re-run the whole scenario as 100% success (we never
+      // want the retry button to inject new failures).
+      const remap = ["p0", "p50", "force_fail", "network_fail", "bad_image"].includes(run.scenario)
+        ? "p100" : run.scenario;
       newRun = await api.post<MqRun>("/v1/mq-test/run", {
         event_id: run.event_id,
-        scenario: run.scenario === "force_fail" || run.scenario === "network_fail" || run.scenario === "bad_image"
-          ? "happy"
-          : run.scenario,
+        scenario: remap,
       });
       toast.success(`재시도 시작 (${newRun.expected_count ?? 1}건)`, "🔁 재시도");
     }
@@ -228,7 +240,16 @@ async function abortRow(run: MqRun) {
 }
 
 function scenarioLabel(id: string) {
-  return scenarios.find(s => s.id === id)?.label ?? id;
+  const hit = scenarios.find(s => s.id === id);
+  if (hit) return hit.label;
+  // Legacy run labels — older mq_test_runs rows still carry these.
+  const legacy: Record<string, string> = {
+    happy:        "100% 성공 (legacy)",
+    force_fail:   "강제 실패 (legacy)",
+    network_fail: "네트워크 장애 (legacy)",
+    bad_image:    "잘못된 이미지 (legacy)",
+  };
+  return legacy[id] ?? id;
 }
 function fmtTime(iso: string | null) {
   if (!iso) return "—";
@@ -268,18 +289,9 @@ const anyRunning = computed(() =>
             <FlaskConical class="h-5 w-5" />
           </div>
           <div class="flex-1 min-w-0">
-            <h2 class="text-base font-semibold">
-              <template v-if="masterMode">🧪 MQ 마스터 테스트</template>
-              <template v-else>🧪 MQ 파이프라인 테스트</template>
-            </h2>
+            <h2 class="text-base font-semibold">🧪 MQ 파이프라인 테스트</h2>
             <p class="text-sm text-muted-foreground mt-0.5">
-              <template v-if="masterMode">
-                모든 이벤트의 테스트 현황 · 새 테스트는 각 이벤트의 [테스트] 버튼에서 실행
-              </template>
-              <template v-else>
-                배치: <span class="font-medium text-foreground">{{ batchName }}</span> 전용
-                · 관리자 Telegram으로만 전송
-              </template>
+              관리자 Telegram으로만 전송 · 이벤트별 필터 + 시나리오별 실행
               <span v-if="anyRunning" class="ml-2 inline-flex items-center gap-1 text-blue-600 dark:text-blue-300">
                 <Loader2 class="h-3 w-3 animate-spin" />
                 실시간 갱신중
@@ -292,8 +304,8 @@ const anyRunning = computed(() =>
         </div>
 
         <div class="flex-1 overflow-y-auto p-5 space-y-5">
-          <!-- Master-mode event picker — pick an event, then run scenario below -->
-          <div v-if="masterMode">
+          <!-- Event picker — always visible. Per-row [테스트] pre-fills it. -->
+          <div>
             <h3 class="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center justify-between">
               <span>대상 이벤트 ({{ masterEvents.length }})</span>
               <button type="button" class="text-[10px] font-normal normal-case text-muted-foreground hover:text-foreground inline-flex items-center gap-1" @click="masterEvents = []; loadMasterEvents()">
@@ -301,31 +313,46 @@ const anyRunning = computed(() =>
                 다시 불러오기
               </button>
             </h3>
-            <div class="relative mb-3">
+            <div class="flex gap-2 mb-3">
               <select
                 v-model="masterEventId"
                 :disabled="masterEventsLoading || masterEvents.length === 0"
-                class="h-10 w-full px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary disabled:opacity-60"
+                class="h-10 flex-1 px-3 rounded-lg border border-input bg-background text-sm focus:outline-none focus:border-primary disabled:opacity-60"
               >
                 <option value="">
                   <template v-if="masterEventsLoading">불러오는 중…</template>
                   <template v-else-if="masterEvents.length === 0">사용 가능한 이벤트 없음</template>
-                  <template v-else>이벤트 선택…</template>
+                  <template v-else>전체 이벤트 (필터 없음)</template>
                 </option>
                 <option v-for="e in masterEvents" :key="e.id" :value="e.id">
                   {{ e.name }} · {{ e.kind === 'regular' ? '정기' : '비정기' }}{{ e.scheduled_date ? ` · ${e.scheduled_date}` : '' }} · {{ e.status }}
                 </option>
               </select>
+              <button
+                v-if="masterEventId"
+                type="button"
+                class="h-10 px-3 rounded-lg border border-input bg-background text-sm hover:bg-muted inline-flex items-center gap-1"
+                title="필터 해제 — 전체 이벤트 보기"
+                @click="masterEventId = ''"
+              >
+                <X class="h-3.5 w-3.5" />
+                필터 해제
+              </button>
             </div>
             <div v-if="masterEventsError" class="-mt-2 mb-3 text-[11px] text-rose-600 dark:text-rose-300">
               {{ masterEventsError }}
             </div>
           </div>
 
-          <!-- Scenario picker + execute (per-event mode AND master mode w/ event picked) -->
-          <div v-if="!masterMode || !!masterEventId">
-            <h3 class="text-xs font-semibold text-muted-foreground uppercase mb-2">시나리오</h3>
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+          <!-- Scenario picker — disabled until an event is chosen -->
+          <div>
+            <h3 class="text-xs font-semibold text-muted-foreground uppercase mb-2 flex items-center gap-2">
+              시나리오
+              <span v-if="!masterEventId" class="text-[10px] font-normal normal-case text-amber-600 dark:text-amber-300">
+                먼저 위에서 대상 이벤트를 선택하세요
+              </span>
+            </h3>
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-2 mb-3" :class="!masterEventId ? 'opacity-50 pointer-events-none' : ''">
               <button
                 v-for="s in scenarios" :key="s.id"
                 type="button"
@@ -345,7 +372,7 @@ const anyRunning = computed(() =>
             <button
               type="button"
               class="h-10 px-4 rounded-lg bg-primary text-primary-foreground text-sm font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-60"
-              :disabled="firing || (!eventId && !masterEventId)"
+              :disabled="firing || !masterEventId"
               @click="fire(selected)"
             >
               <Loader2 v-if="firing" class="h-4 w-4 animate-spin" />
