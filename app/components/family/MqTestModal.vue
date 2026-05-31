@@ -185,42 +185,59 @@ async function fire(scenario: string) {
 const retryingId  = ref<string | null>(null);
 const abortingId  = ref<string | null>(null);
 
-// Smart retry — if the run has tracked failed_photo_ids, re-fire ONLY those
-// (e.g. 60-fanout, 25 failed → backend creates a new run of 25). Otherwise
-// fall back to re-running the whole scenario (rewriting failing scenarios
-// to 'happy' so the operator actually sees a delivery).
-async function retryRow(run: MqRun) {
+// Two retry modes:
+//   retryFailedRow → /retry-failed: only the photos that DIDN'T deliver
+//                    (uses failed_photo_ids tracked by the worker)
+//   retryAllRow    → /run: re-fire the WHOLE batch (every resident again)
+// Both rewrite to p100 so retries always deliver — never inject new failures.
+async function retryFailedRow(run: MqRun) {
   if (retryingId.value) return;
+  if ((run.failed_photo_ids?.length ?? 0) === 0) {
+    toast.error("이 실행에는 추적된 실패 항목이 없습니다", "재시도 불가");
+    return;
+  }
   retryingId.value = run.id;
   try {
-    let newRun: MqRun;
-    if ((run.failed_photo_ids?.length ?? 0) > 0) {
-      newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/retry-failed`, {});
-      toast.success(`실패 ${run.failed_photo_ids.length}건만 재전송`, "🎯 스마트 재시도");
-    } else {
-      // Fallback path: re-run the whole scenario as 100% success (we never
-      // want the retry button to inject new failures).
-      const remap = ["p0", "p50", "force_fail", "network_fail", "bad_image"].includes(run.scenario)
-        ? "p100" : run.scenario;
-      newRun = await api.post<MqRun>("/v1/mq-test/run", {
-        event_id: run.event_id,
-        scenario: remap,
-      });
-      toast.success(`재시도 시작 (${newRun.expected_count ?? 1}건)`, "🔁 재시도");
-    }
-    // Jump back to page 1 with filters cleared so the freshly-created run is
-    // visible (otherwise it appears at the top but the user might be paging
-    // through older runs and never see the new progress bar).
-    fScenario.value = ""; fAppliedScenario.value = "";
-    fStatus.value   = ""; fAppliedStatus.value   = "";
-    page.value = 1;
-    await refreshHistory();
-    startPolling();
+    const newRun = await api.post<MqRun>(`/v1/mq-test/runs/${run.id}/retry-failed`, {});
+    toast.success(`실패 ${run.failed_photo_ids.length}건만 재전송 (${newRun.expected_count}건 큐)`, "🎯 실패만 재시도");
+    afterRetry();
   } catch (e: any) {
-    toast.error(e?.data?.message ?? "재시도 실패", "오류");
+    toast.error(e?.data?.message ?? "실패만 재시도 실패", "오류");
   } finally {
     retryingId.value = null;
   }
+}
+
+async function retryAllRow(run: MqRun) {
+  if (retryingId.value) return;
+  if (!run.event_id) {
+    toast.error("원본 이벤트가 없는 실행은 전체 재시도할 수 없습니다", "오류");
+    return;
+  }
+  retryingId.value = run.id;
+  try {
+    const newRun = await api.post<MqRun>("/v1/mq-test/run", {
+      event_id: run.event_id,
+      scenario: "p100",
+    });
+    toast.success(`전체 ${newRun.expected_count}건 재실행`, "🔁 전체 재시도");
+    afterRetry();
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "전체 재시도 실패", "오류");
+  } finally {
+    retryingId.value = null;
+  }
+}
+
+async function afterRetry() {
+  // Jump back to page 1 with filters cleared so the freshly-created run is
+  // visible (otherwise it appears at the top but the user might be paging
+  // through older runs and never see the new progress bar).
+  fScenario.value = ""; fAppliedScenario.value = "";
+  fStatus.value   = ""; fAppliedStatus.value   = "";
+  page.value = 1;
+  await refreshHistory();
+  startPolling();
 }
 
 // Strand-recovery — for runs stuck in queued/running (worker crash, broker
@@ -452,18 +469,31 @@ const anyRunning = computed(() =>
                         <Ban v-else class="h-3 w-3" />
                         강제 종료
                       </button>
+                      <!-- 실패만 재시도 — only enabled if the worker tracked failures -->
                       <button
+                        v-if="(r.failed_photo_ids?.length ?? 0) > 0"
                         type="button"
-                        class="h-7 px-2.5 rounded-md border border-input bg-background text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50"
+                        class="h-7 px-2.5 rounded-md border border-rose-300 dark:border-rose-800 bg-rose-50 dark:bg-rose-950/30 text-rose-700 dark:text-rose-200 text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-rose-100 dark:hover:bg-rose-950/50 disabled:opacity-50"
                         :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running'"
-                        :title="(r.failed_photo_ids?.length ?? 0) > 0
-                          ? `실패한 ${r.failed_photo_ids.length}건만 다시 전송`
-                          : '같은 시나리오로 다시 실행'"
-                        @click="retryRow(r)"
+                        :title="`실패한 ${r.failed_photo_ids.length}건만 다시 전송 (성공한 항목은 건너뜀)`"
+                        @click="retryFailedRow(r)"
                       >
                         <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
                         <RotateCcw v-else class="h-3 w-3" />
-                        {{ (r.failed_photo_ids?.length ?? 0) > 0 ? `재전송 (${r.failed_photo_ids.length})` : '재시도' }}
+                        실패만 ({{ r.failed_photo_ids.length }})
+                      </button>
+                      <!-- 전체 재시도 — re-fire the whole batch from scratch -->
+                      <button
+                        v-if="r.event_id"
+                        type="button"
+                        class="h-7 px-2.5 rounded-md border border-input bg-background text-[11px] font-semibold inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50"
+                        :disabled="retryingId === r.id || r.status === 'queued' || r.status === 'running'"
+                        :title="`이 배치의 모든 ${r.expected_count}건을 다시 전송 (성공 여부 무관)`"
+                        @click="retryAllRow(r)"
+                      >
+                        <Loader2 v-if="retryingId === r.id" class="h-3 w-3 animate-spin" />
+                        <RotateCcw v-else class="h-3 w-3" />
+                        전체 재시도
                       </button>
                     </div>
                   </div>
@@ -481,10 +511,11 @@ const anyRunning = computed(() =>
                       />
                     </div>
                     <span class="text-[11px] tabular-nums text-muted-foreground shrink-0 whitespace-nowrap">
-                      <span class="text-emerald-700 dark:text-emerald-200 font-semibold">{{ r.success_count }}</span>
-                      <span> / </span>
-                      <span class="text-rose-700 dark:text-rose-200 font-semibold">{{ r.failure_count }}</span>
-                      <span> / {{ r.expected_count }}</span>
+                      <span class="text-emerald-700 dark:text-emerald-200">성공 <span class="font-semibold">{{ r.success_count }}</span></span>
+                      <span class="opacity-50"> · </span>
+                      <span class="text-rose-700 dark:text-rose-200">실패 <span class="font-semibold">{{ r.failure_count }}</span></span>
+                      <span class="opacity-50"> · </span>
+                      <span>전체 <span class="font-semibold">{{ r.expected_count }}</span></span>
                     </span>
                   </div>
 
