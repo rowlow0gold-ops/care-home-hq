@@ -195,6 +195,12 @@ async function retryRow(run: MqRun) {
       });
       toast.success(`재시도 시작 (${newRun.expected_count ?? 1}건)`, "🔁 재시도");
     }
+    // Jump back to page 1 with filters cleared so the freshly-created run is
+    // visible (otherwise it appears at the top but the user might be paging
+    // through older runs and never see the new progress bar).
+    fScenario.value = ""; fAppliedScenario.value = "";
+    fStatus.value   = ""; fAppliedStatus.value   = "";
+    page.value = 1;
     await refreshHistory();
     startPolling();
   } catch (e: any) {
