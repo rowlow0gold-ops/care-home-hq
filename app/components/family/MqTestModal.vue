@@ -503,7 +503,8 @@ const anyRunning = computed(() =>
                     </div>
                     <div
                       v-if="r.last_error && r.failure_count > 0"
-                      class="rounded bg-rose-50 dark:bg-rose-950/30 px-2 py-1 text-rose-800 dark:text-rose-200 font-mono truncate"
+                      class="rounded bg-rose-50 dark:bg-rose-950/30 px-2 py-1 text-rose-800 dark:text-rose-200 font-mono whitespace-pre-wrap break-all max-h-40 overflow-y-auto leading-relaxed"
+                      :title="r.last_error"
                     >
                       {{ r.last_error }}
                     </div>
