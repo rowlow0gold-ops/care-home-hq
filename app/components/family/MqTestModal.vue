@@ -9,6 +9,7 @@
 import {
   X, FlaskConical, Loader2, CheckCircle2, AlertTriangle, Skull,
   Send, Network, Image as ImageIcon, MessageSquare, RefreshCw,
+  Trash2, RotateCcw, Archive,
 } from "@lucide/vue";
 
 interface MqRun {
@@ -61,6 +62,46 @@ const { data: history, refresh: refreshHistory } = await useAsyncData<MqRun[]>(
   () => api.get<MqRun[]>("/v1/mq-test/runs"),
   { default: () => [], lazy: true },
 );
+
+// DLQ panel — counts per queue + replay/purge controls.
+interface DlqStatus {
+  queues: { queue: string; count: number }[];
+  total:  number;
+}
+const { data: dlq, refresh: refreshDlq } = await useAsyncData<DlqStatus | null>(
+  "mq-dlq-status",
+  () => api.get<DlqStatus>("/v1/mq-test/dlq"),
+  { default: () => null, lazy: true },
+);
+const dlqBusy = ref(false);
+async function replayDlq() {
+  if (dlqBusy.value) return;
+  if (!confirm("DLQ에 있는 모든 실패 메시지를 메인 큐로 다시 보냅니다. 진행할까요?")) return;
+  dlqBusy.value = true;
+  try {
+    const r = await api.post<{ moved: number }>("/v1/mq-test/dlq/replay", {});
+    toast.success(`${r.moved}건 재시도 큐에 넣음`, "🔁 DLQ 재시도");
+    await refreshDlq();
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "재시도 실패", "오류");
+  } finally {
+    dlqBusy.value = false;
+  }
+}
+async function purgeDlq() {
+  if (dlqBusy.value) return;
+  if (!confirm("⚠️ DLQ에 있는 모든 실패 메시지를 영구 삭제합니다. 복구 불가. 진행할까요?")) return;
+  dlqBusy.value = true;
+  try {
+    const r = await api.post<{ deleted: number }>("/v1/mq-test/dlq/purge", {});
+    toast.success(`${r.deleted}건 삭제됨`, "🗑️ DLQ 비움");
+    await refreshDlq();
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "삭제 실패", "오류");
+  } finally {
+    dlqBusy.value = false;
+  }
+}
 
 // Poll the current run every 2s while it's in flight or waiting for a reply.
 let poller: ReturnType<typeof setInterval> | null = null;
@@ -276,6 +317,65 @@ const pipelineStages = computed(() => {
             <div v-else-if="current.status === 'success'" class="mt-3 text-[11px] text-muted-foreground italic">
               Telegram에서 메시지에 답장하시면 여기에 표시됩니다.
             </div>
+          </div>
+
+          <!-- DLQ — failure quarantine -->
+          <div class="rounded-lg border bg-card">
+            <div class="px-4 py-3 border-b flex items-center justify-between flex-wrap gap-2">
+              <h3 class="text-sm font-semibold flex items-center gap-2">
+                <Archive class="h-4 w-4 text-rose-600" />
+                실패 격리함 (DLQ)
+                <span
+                  class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium tabular-nums"
+                  :class="(dlq?.total ?? 0) > 0
+                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-200'
+                    : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-200'"
+                >
+                  {{ dlq?.total ?? 0 }}건
+                </span>
+              </h3>
+              <div class="flex items-center gap-1.5">
+                <button type="button" class="text-xs text-muted-foreground hover:text-foreground inline-flex items-center gap-1" @click="refreshDlq">
+                  <RefreshCw class="h-3 w-3" />
+                  새로고침
+                </button>
+                <button
+                  type="button"
+                  class="h-8 px-2.5 rounded-md border border-input bg-background text-xs font-semibold inline-flex items-center gap-1 hover:bg-muted disabled:opacity-50"
+                  :disabled="dlqBusy || (dlq?.total ?? 0) === 0"
+                  @click="replayDlq"
+                >
+                  <Loader2 v-if="dlqBusy" class="h-3 w-3 animate-spin" />
+                  <RotateCcw v-else class="h-3 w-3" />
+                  재시도 ({{ dlq?.total ?? 0 }})
+                </button>
+                <button
+                  type="button"
+                  class="h-8 px-2.5 rounded-md border border-destructive/40 text-destructive text-xs font-semibold inline-flex items-center gap-1 hover:bg-destructive/10 disabled:opacity-50"
+                  :disabled="dlqBusy || (dlq?.total ?? 0) === 0"
+                  @click="purgeDlq"
+                >
+                  <Trash2 class="h-3 w-3" />
+                  비우기
+                </button>
+              </div>
+            </div>
+            <table class="w-full text-xs">
+              <tbody>
+                <tr v-for="q in dlq?.queues ?? []" :key="q.queue" class="border-t">
+                  <td class="py-2 px-4 font-mono">{{ q.queue }}</td>
+                  <td class="py-2 px-4 text-right tabular-nums"
+                      :class="q.count > 0 ? 'text-rose-700 dark:text-rose-200 font-semibold' : 'text-muted-foreground'">
+                    {{ q.count }}건
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+            <p class="px-4 py-2 text-[11px] text-muted-foreground border-t">
+              실패한 메시지는 자동으로 여기에 격리됩니다. 원인을 고친 후
+              <strong>재시도</strong>를 누르면 다시 처리됩니다. <strong>비우기</strong>는
+              완전히 삭제하므로 신중히 사용하세요.
+            </p>
           </div>
 
           <!-- Recent history -->
