@@ -24,6 +24,9 @@ interface MqRun {
   telegram_message_id: number | null;
   telegram_reply:      string | null;
   telegram_reply_at:   string | null;
+  expected_count?:     number;
+  success_count?:      number;
+  failure_count?:      number;
 }
 
 const props = defineProps<{
@@ -37,10 +40,10 @@ const api   = useApi();
 const toast = useToast();
 
 const scenarios = [
-  { id: "happy",        label: "정상 발송",      icon: Send,       hint: "PNG/JPEG 사진 1장을 관리자 Telegram으로 전송. 성공 시 메시지 ID 캡처." },
-  { id: "force_fail",   label: "강제 실패 → DLQ", icon: Skull,      hint: "Worker가 Telegram 호출 전에 Err 반환. 3회 재시도 후 DLQ로 라우팅." },
-  { id: "network_fail", label: "네트워크 장애",   icon: Network,    hint: "네트워크 장애 시뮬레이션. 동일 재시도 + DLQ 동작 확인용." },
-  { id: "bad_image",    label: "잘못된 이미지",   icon: ImageIcon,  hint: "SVG 사진을 전송 → Telegram이 IMAGE_PROCESS_FAILED. 재시도 후 DLQ." },
+  { id: "happy",        label: "정상 발송 (전체)",  icon: Send,       hint: "배치 내 모든 어르신(N명)의 사진을 각각 관리자 Telegram으로 전송. SVG는 자동 PNG로 대체. 실제 발송과 동일한 N건의 MQ 메시지를 발생시킵니다." },
+  { id: "force_fail",   label: "강제 실패 → DLQ",   icon: Skull,      hint: "Worker가 Telegram 호출 전에 Err 반환. 3회 재시도 후 DLQ. 1건만 실행." },
+  { id: "network_fail", label: "네트워크 장애",     icon: Network,    hint: "네트워크 장애 시뮬레이션. 재시도 + DLQ 동작 확인. 1건만 실행." },
+  { id: "bad_image",    label: "잘못된 이미지 (전체)", icon: ImageIcon, hint: "원본 SVG를 그대로 전송 → Telegram IMAGE_PROCESS_FAILED. 재시도 후 DLQ. N건 모두 실행." },
 ];
 
 const selected = ref<string>("happy");
@@ -223,13 +226,36 @@ const pipelineStages = computed(() => {
               </template>
             </div>
 
+            <!-- Fan-out progress bar (only when expected_count > 1) -->
+            <div v-if="(current.expected_count ?? 1) > 1" class="mb-3">
+              <div class="flex items-center justify-between text-xs mb-1">
+                <span class="font-semibold">전송 진행률</span>
+                <span class="tabular-nums">
+                  성공 {{ current.success_count ?? 0 }} · 실패 {{ current.failure_count ?? 0 }} / 총 {{ current.expected_count }}건
+                </span>
+              </div>
+              <div class="h-2 rounded-full bg-muted overflow-hidden flex">
+                <div
+                  class="bg-emerald-500 h-full transition-all"
+                  :style="{ width: ((current.success_count ?? 0) / (current.expected_count ?? 1) * 100) + '%' }"
+                />
+                <div
+                  class="bg-rose-500 h-full transition-all"
+                  :style="{ width: ((current.failure_count ?? 0) / (current.expected_count ?? 1) * 100) + '%' }"
+                />
+              </div>
+              <p class="text-[10px] text-muted-foreground mt-1">
+                참고: Telegram 동일 채팅 rate limit이 ~1msg/sec이라 N건이 N초 정도 걸립니다.
+              </p>
+            </div>
+
             <dl class="grid grid-cols-2 gap-y-1.5 text-xs">
               <dt class="text-muted-foreground">시나리오</dt><dd>{{ scenarioLabel(current.scenario) }}</dd>
               <dt class="text-muted-foreground">큐 등록</dt><dd class="tabular-nums">{{ fmtTime(current.queued_at) }}</dd>
               <dt class="text-muted-foreground">Worker 소비</dt><dd class="tabular-nums">{{ fmtTime(current.consumed_at) }}</dd>
               <dt class="text-muted-foreground">완료</dt><dd class="tabular-nums">{{ fmtTime(current.completed_at) }}</dd>
-              <dt class="text-muted-foreground">시도 횟수</dt><dd class="tabular-nums">{{ current.delivery_attempts }} / 3</dd>
-              <dt v-if="current.telegram_message_id" class="text-muted-foreground">Telegram MSG ID</dt>
+              <dt class="text-muted-foreground">최대 시도</dt><dd class="tabular-nums">{{ current.delivery_attempts }} / 3</dd>
+              <dt v-if="current.telegram_message_id" class="text-muted-foreground">첫 Telegram MSG ID</dt>
               <dd v-if="current.telegram_message_id" class="tabular-nums font-mono">{{ current.telegram_message_id }}</dd>
             </dl>
 
