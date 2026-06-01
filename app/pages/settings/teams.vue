@@ -21,6 +21,7 @@ const allowed = computed(() =>
 interface Team {
   id: string; branch_id: string; branch_name: string | null;
   name: string; color_hue: number; sort_order: number;
+  shift_start_hm: string; shift_end_hm: string;
   member_count: number; created_at: string;
 }
 
@@ -29,13 +30,24 @@ const { data: teams, refresh } = await useAsyncData("teams", () => api.get<Team[
 // Create/edit composer
 const editing = ref<Team | null>(null);
 const creating = ref(false);
-const formName = ref("");
-const formHue  = ref(200);
-const formSort = ref(0);
-const saving   = ref(false);
+const formName  = ref("");
+const formHue   = ref(200);
+const formSort  = ref(0);
+const formStart = ref("06:00");
+const formEnd   = ref("18:00");
+const saving    = ref(false);
 
-function openCreate() { creating.value = true; editing.value = null; formName.value = ""; formHue.value = 200; formSort.value = (teams.value?.length ?? 0) + 1; }
-function openEdit(t: Team) { editing.value = t; creating.value = false; formName.value = t.name; formHue.value = t.color_hue; formSort.value = t.sort_order; }
+function openCreate() {
+  creating.value = true; editing.value = null;
+  formName.value = ""; formHue.value = 200;
+  formSort.value = (teams.value?.length ?? 0) + 1;
+  formStart.value = "06:00"; formEnd.value = "18:00";
+}
+function openEdit(t: Team) {
+  editing.value = t; creating.value = false;
+  formName.value = t.name; formHue.value = t.color_hue; formSort.value = t.sort_order;
+  formStart.value = t.shift_start_hm; formEnd.value = t.shift_end_hm;
+}
 function close() { editing.value = null; creating.value = false; }
 
 async function save() {
@@ -48,6 +60,8 @@ async function save() {
         name: formName.value.trim(),
         color_hue: formHue.value,
         sort_order: formSort.value,
+        shift_start_hm: formStart.value,
+        shift_end_hm:   formEnd.value,
       });
       toast.success("팀 정보 수정됨", "✅");
     } else {
@@ -55,6 +69,8 @@ async function save() {
         name: formName.value.trim(),
         color_hue: formHue.value,
         sort_order: formSort.value,
+        shift_start_hm: formStart.value,
+        shift_end_hm:   formEnd.value,
       });
       toast.success(`팀 '${formName.value}' 추가됨`, "✅");
     }
@@ -137,7 +153,28 @@ const HUE_PRESETS = [0, 30, 60, 120, 180, 210, 260, 300];
               :disabled="saving"
             />
           </div>
+          <div>
+            <label class="text-xs font-semibold block mb-1">근무 시작 시각 (24h)</label>
+            <input
+              v-model="formStart"
+              type="time"
+              class="w-full h-10 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:border-primary"
+              :disabled="saving"
+            />
+          </div>
+          <div>
+            <label class="text-xs font-semibold block mb-1">근무 종료 시각 (24h)</label>
+            <input
+              v-model="formEnd"
+              type="time"
+              class="w-full h-10 px-3 rounded-md border border-input bg-background text-sm focus:outline-none focus:border-primary"
+              :disabled="saving"
+            />
+          </div>
         </div>
+        <p class="text-[11px] text-muted-foreground -mt-1">
+          야간팀은 종료 시각이 다음 날로 넘어가도 됩니다 (예: 18:00 ~ 06:00).
+        </p>
         <div>
           <label class="text-xs font-semibold block mb-1">팀 색상</label>
           <div class="flex items-center gap-2 flex-wrap">
@@ -194,7 +231,12 @@ const HUE_PRESETS = [0, 30, 60, 120, 180, 210, 260, 300];
               {{ t.name.charAt(0) }}
             </span>
             <div class="flex-1 min-w-0">
-              <div class="text-sm font-semibold">{{ t.name }}</div>
+              <div class="text-sm font-semibold flex items-center gap-2 flex-wrap">
+                <span>{{ t.name }}</span>
+                <span class="text-[10px] font-medium tabular-nums bg-muted text-muted-foreground rounded px-1.5 py-0.5">
+                  {{ t.shift_start_hm }} ~ {{ t.shift_end_hm }}
+                </span>
+              </div>
               <div class="text-xs text-muted-foreground mt-0.5 inline-flex items-center gap-1">
                 <Users class="h-3 w-3" />
                 {{ t.member_count }}명 · {{ t.branch_name ?? "—" }}
