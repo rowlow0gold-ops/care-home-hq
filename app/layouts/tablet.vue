@@ -4,11 +4,11 @@
  *  - large fonts (base 18px), big tap targets (min 56px)
  *  - dark/light auto from system; no theme toggle to keep things simple
  *  - top bar shows my name + branch, with logout
- *  - no sidebar — every screen has at most one "back" + one action
+ *  - BOTTOM NAV: 5 sections (대시보드 / 어르신 / 인수인계 / 출퇴근 / 더보기)
  *
- * Login + pair pages have no top bar; they render full-screen via the slot.
+ * Login + pair pages render full-screen with no chrome via isAuthScreen.
  */
-import { LogOut, ChevronLeft } from "@lucide/vue";
+import { LogOut, ChevronLeft, LayoutGrid, Users, ClipboardCheck, Clock, Menu } from "@lucide/vue";
 
 // Tablet-only PWA manifest + Apple meta so "홈 화면에 추가" creates a
 // full-screen icon launcher pointing at /tablet.
@@ -36,6 +36,16 @@ async function onLogout() {
   if (!confirm("로그아웃 하시겠습니까?")) return;
   await logout();
 }
+
+// Bottom nav — visible on all non-auth tablet screens.
+const navItems = [
+  { to: "/tablet",           label: "대시보드",   icon: LayoutGrid,      match: /^\/tablet$|^\/tablet\/(announcements|leave-info)/ },
+  { to: "/tablet/residents", label: "어르신",     icon: Users,           match: /^\/tablet\/residents/ },
+  { to: "/tablet/handover",  label: "인수인계",   icon: ClipboardCheck,  match: /^\/tablet\/handover/ },
+  { to: "/tablet/clock",     label: "출퇴근",     icon: Clock,           match: /^\/tablet\/clock/ },
+  { to: "/tablet/more",      label: "더보기",     icon: Menu,            match: /^\/tablet\/(more|leave|schedule)/ },
+];
+function navActive(re: RegExp) { return re.test(route.path); }
 </script>
 
 <template>
@@ -71,9 +81,28 @@ async function onLogout() {
       </button>
     </header>
 
-    <main>
+    <main :class="!isAuthScreen ? 'pb-24' : ''">
       <slot />
     </main>
+
+    <!-- Bottom nav (hidden on auth screens) -->
+    <nav
+      v-if="!isAuthScreen"
+      class="fixed bottom-0 inset-x-0 z-40 bg-card border-t flex items-stretch shadow-[0_-1px_4px_rgba(0,0,0,0.06)]"
+      style="padding-bottom: env(safe-area-inset-bottom);"
+    >
+      <NuxtLink
+        v-for="n in navItems" :key="n.to"
+        :to="n.to"
+        class="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium transition-colors"
+        :class="navActive(n.match)
+          ? 'text-primary bg-primary/5'
+          : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
+      >
+        <component :is="n.icon" class="h-5 w-5" />
+        {{ n.label }}
+      </NuxtLink>
+    </nav>
   </div>
 </template>
 
