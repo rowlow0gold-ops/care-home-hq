@@ -18,7 +18,7 @@ const toast = useToast();
 const id    = computed(() => String(route.params.id));
 
 const { data: detail } = await useAsyncData(`tablet-res-ph-${id.value}`, () =>
-  $fetch<{ full_name: string }>(`/api/tablet/v1/residents/${id.value}`),
+  $fetch<{ full_name: string }>(`/api/v1/residents/${id.value}`),
 );
 useHead({ title: () => `${detail.value?.full_name ?? ""} 사진 · 케어닥` });
 
@@ -27,7 +27,7 @@ useHead({ title: () => `${detail.value?.full_name ?? ""} 사진 · 케어닥` })
 interface EventTag { id: string; name: string; tag: string | null; kind: string; status: string }
 interface EventPage { items: EventTag[] }
 const { data: events } = await useAsyncData("tablet-event-tags", () =>
-  $fetch<EventPage>("/api/tablet/v1/events", { query: { page: 1, page_size: 50 } }),
+  $fetch<EventPage>("/api/v1/events", { query: { page: 1, page_size: 50 } }),
 );
 const tagOptions = computed(() => {
   const seen = new Set<string>();
@@ -77,7 +77,7 @@ async function upload() {
     form.append("tag", tag.value || "regular");
     if (caption.value.trim()) form.append("caption", caption.value.trim());
     form.append("file", file.value);
-    await $fetch("/api/tablet/v1/photos", { method: "POST", body: form });
+    await $fetch("/api/v1/photos", { method: "POST", body: form });
     toast.success("HQ 승인 대기열로 전송됨", "📸 업로드 완료");
     lastOk.value = true;
     clearPick();

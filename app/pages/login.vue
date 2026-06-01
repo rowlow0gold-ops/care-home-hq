@@ -290,14 +290,8 @@ async function onSubmit() {
 
         <p class="text-[11px] text-muted-foreground mt-4 leading-relaxed">
           위 계정 중 하나를 눌러 폼에 자동으로 입력하세요.<br>
-          요양보호사 (간호사 포함) 계정은 태블릿 앱 PIN 로그인을 사용합니다.
+          요양보호사 계정으로 로그인하면 자동으로 태블릿 화면(/tablet)으로 이동합니다.
         </p>
-        <NuxtLink
-          to="/tablet/pair"
-          class="mt-3 inline-flex items-center justify-center w-full h-10 rounded-md border border-input bg-background hover:bg-muted text-xs font-medium text-muted-foreground"
-        >
-          요양보호사용 태블릿 등록 / PIN 로그인 →
-        </NuxtLink>
       </div>
     </div>
   </div>
