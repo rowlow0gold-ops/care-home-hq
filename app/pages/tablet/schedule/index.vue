@@ -246,7 +246,7 @@ function isExpanded(d: Date): boolean { return expandedDays.value.has(localDateS
                 {{ d.getMonth() + 1 }}/{{ d.getDate() }}
               </div>
             </th>
-            <th class="text-center px-3 py-2 border-b border-l w-20 font-semibold">주간</th>
+            <th class="text-center px-3 py-2 border-b border-l w-20 font-semibold">근무시간</th>
           </tr>
         </thead>
         <tbody>
