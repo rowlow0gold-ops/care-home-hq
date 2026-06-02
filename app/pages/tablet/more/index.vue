@@ -3,7 +3,7 @@
  * /tablet/more — overflow menu. The bottom nav has the 4 most-used
  * sections; this page links to the rest (휴가 신청, 팀 스케쥴, 로그아웃).
  */
-import { Calendar, CalendarDays, LogOut } from "@lucide/vue";
+import { Calendar, CalendarDays, Clock, LogOut } from "@lucide/vue";
 
 definePageMeta({ layout: "tablet" });
 useHead({ title: "더보기 · 케어닥" });
@@ -11,6 +11,7 @@ useHead({ title: "더보기 · 케어닥" });
 const { logout, me } = useTablet();
 
 const items = [
+  { to: "/tablet/clock",    icon: Clock,        label: "출퇴근",         hint: "출/퇴근 도장 · 이번 달 근태" },
   { to: "/tablet/leave",    icon: Calendar,     label: "휴가 신청",     hint: "연차 잔여 확인 · 새 휴가 신청" },
   { to: "/tablet/schedule", icon: CalendarDays, label: "팀 스케쥴",     hint: "이번 주 우리 센터 근무표" },
 ];

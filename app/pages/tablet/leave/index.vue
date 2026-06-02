@@ -6,13 +6,15 @@
  * Below: my requests list with status pill (대기/승인/반려/취소).
  * Pending requests can be cancelled by the requester (DELETE).
  */
-import { Loader2, Plus, CheckCircle2, X, Calendar, Trash2 } from "@lucide/vue";
+import { Loader2, Plus, CheckCircle2, X, Calendar, Trash2, MessageSquare } from "@lucide/vue";
 
 definePageMeta({ layout: "tablet" });
 useHead({ title: "휴가 신청 · 케어닥" });
 
-const api   = useTabletApi();
-const toast = useToast();
+const api    = useTabletApi();
+const toast  = useToast();
+const router = useRouter();
+const chat   = useChat();
 
 interface Balance { annual_total: number; annual_used: number; annual_remaining: number; monthly_remaining?: number }
 const { data: balance } = await useAsyncData("tablet-leave-bal", () =>
@@ -24,6 +26,7 @@ interface LeaveRow {
   leave_type: string; start_date: string; end_date: string; days: number;
   reason: string | null; status: string;
   requested_at: string; decided_at: string | null;
+  decided_by: string | null;
   decided_by_name: string | null; decision_note: string | null;
 }
 const { data: rows, refresh } = await useAsyncData("tablet-leave-list", () =>
@@ -89,6 +92,27 @@ async function cancelOne(r: LeaveRow) {
     toast.error(e?.data?.message ?? "취소 실패", "오류");
   } finally {
     cancellingId.value = null;
+  }
+}
+
+// 반려된 휴가의 결정자와 대화 시작 (또는 기존 대화로 이동).
+const chatStartingId = ref<string | null>(null);
+async function chatWithDecider(r: LeaveRow) {
+  if (!r.decided_by) {
+    toast.error("결정자 정보가 없습니다", "오류");
+    return;
+  }
+  if (chatStartingId.value) return;
+  chatStartingId.value = r.id;
+  try {
+    const conv = await chat.startConversation(r.decided_by);
+    if (!conv) {
+      toast.error("대화 시작 실패", "오류");
+      return;
+    }
+    router.push(`/tablet/chat/${conv.id}`);
+  } finally {
+    chatStartingId.value = null;
   }
 }
 
@@ -201,10 +225,38 @@ function typeLabel(t: string) { return types.find(x => x.id === t)?.label ?? t; 
           </span>
         </div>
         <p v-if="r.reason" class="text-sm whitespace-pre-wrap mb-1">{{ r.reason }}</p>
-        <p v-if="r.decided_by_name" class="text-[11px] text-muted-foreground">
+
+        <!-- 반려: 사유를 두드러지게 표시 + 결정자와 채팅 시작 버튼 -->
+        <div
+          v-if="r.status === 'rejected'"
+          class="mt-2 rounded-lg border border-rose-200 dark:border-rose-900/40 bg-rose-50 dark:bg-rose-950/30 p-3"
+        >
+          <div class="text-[11px] font-semibold text-rose-700 dark:text-rose-200 mb-1">
+            반려 사유 · 결정: {{ r.decided_by_name ?? '관리자' }}
+          </div>
+          <p class="text-sm whitespace-pre-wrap text-rose-900 dark:text-rose-100">
+            {{ r.decision_note || '(사유 미기재)' }}
+          </p>
+          <div v-if="r.decided_by" class="mt-2 flex justify-end">
+            <button
+              type="button"
+              class="h-9 px-3 rounded-md bg-primary text-primary-foreground text-xs font-semibold inline-flex items-center gap-1.5 hover:bg-primary/90 disabled:opacity-50"
+              :disabled="chatStartingId === r.id"
+              @click="chatWithDecider(r)"
+            >
+              <Loader2 v-if="chatStartingId === r.id" class="h-3.5 w-3.5 animate-spin" />
+              <MessageSquare v-else class="h-3.5 w-3.5" />
+              결정자와 대화
+            </button>
+          </div>
+        </div>
+
+        <!-- 승인 등 기타 결정: 한 줄로 -->
+        <p v-else-if="r.decided_by_name" class="text-[11px] text-muted-foreground">
           결정: {{ r.decided_by_name }}
           <span v-if="r.decision_note">· {{ r.decision_note }}</span>
         </p>
+
         <div class="mt-2 flex justify-end">
           <button
             v-if="r.status === 'pending'"

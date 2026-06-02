@@ -8,7 +8,7 @@
  *
  * Login + pair pages render full-screen with no chrome via isAuthScreen.
  */
-import { LogOut, ChevronLeft, LayoutGrid, Users, ClipboardCheck, Clock, Menu } from "@lucide/vue";
+import { LogOut, ChevronLeft, LayoutGrid, Users, ClipboardCheck, Clock, Menu, MessageSquare } from "@lucide/vue";
 
 // Tablet-only PWA manifest + Apple meta so "홈 화면에 추가" creates a
 // full-screen icon launcher pointing at /tablet.
@@ -29,6 +29,13 @@ const route   = useRoute();
 const router  = useRouter();
 const { me, logout } = useTablet();
 
+// Chat polling kicks in for the whole tablet session — invites get
+// auto-accepted in the background, and the unread badge on the nav stays
+// live even if the user never opens /tablet/chat.
+const chat = useChat();
+onMounted(() => chat.startPolling());
+const chatUnread = chat.totalUnread;
+
 const isAuthScreen = computed(() => route.path === "/tablet/pair" || route.path === "/tablet/login");
 const showBack     = computed(() => route.path !== "/tablet" && !isAuthScreen.value);
 
@@ -42,8 +49,8 @@ const navItems = [
   { to: "/tablet",           label: "대시보드",   icon: LayoutGrid,      match: /^\/tablet$|^\/tablet\/(announcements|leave-info)/ },
   { to: "/tablet/residents", label: "어르신",     icon: Users,           match: /^\/tablet\/residents/ },
   { to: "/tablet/handover",  label: "인수인계",   icon: ClipboardCheck,  match: /^\/tablet\/handover/ },
-  { to: "/tablet/clock",     label: "출퇴근",     icon: Clock,           match: /^\/tablet\/clock/ },
-  { to: "/tablet/more",      label: "더보기",     icon: Menu,            match: /^\/tablet\/(more|leave|schedule)/ },
+  { to: "/tablet/chat",      label: "채팅",       icon: MessageSquare,   match: /^\/tablet\/chat/ },
+  { to: "/tablet/more",      label: "더보기",     icon: Menu,            match: /^\/tablet\/(more|leave|schedule|clock)/ },
 ];
 function navActive(re: RegExp) { return re.test(route.path); }
 </script>
@@ -94,12 +101,20 @@ function navActive(re: RegExp) { return re.test(route.path); }
       <NuxtLink
         v-for="n in navItems" :key="n.to"
         :to="n.to"
-        class="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium transition-colors"
+        class="flex-1 flex flex-col items-center justify-center gap-1 py-2.5 text-[11px] font-medium transition-colors relative"
         :class="navActive(n.match)
           ? 'text-primary bg-primary/5'
           : 'text-muted-foreground hover:text-foreground hover:bg-muted/30'"
       >
-        <component :is="n.icon" class="h-5 w-5" />
+        <div class="relative">
+          <component :is="n.icon" class="h-5 w-5" />
+          <span
+            v-if="n.to === '/tablet/chat' && chatUnread > 0"
+            class="absolute -top-1.5 -right-2 min-w-[1.1rem] h-[1.1rem] px-1 rounded-full bg-rose-500 text-white text-[9px] font-bold inline-flex items-center justify-center leading-none"
+          >
+            {{ chatUnread > 99 ? '99+' : chatUnread }}
+          </span>
+        </div>
         {{ n.label }}
       </NuxtLink>
     </nav>
