@@ -35,17 +35,48 @@ onBeforeUnmount(() => {
 });
 watch(convId, (id) => chat.setOpenConversation(id));
 
-// ── Auto-scroll to bottom on new messages ─────────────────────────────────
+// ── Smart auto-scroll ─────────────────────────────────────────────────────
+// 카카오톡식 동작:
+//   1. 내가 보낸 메시지 → 항상 바닥으로.
+//   2. 상대 메시지가 들어왔을 때 내가 이미 바닥 근처면 → 따라 내려감.
+//   3. 위로 스크롤해서 과거 메시지를 읽고 있으면 → 점프하지 않음
+//      (대신 "새 메시지" 알림 점이 떠야 이상적이지만 일단 안 잡아끄는 것만).
 const scroller = ref<HTMLElement | null>(null);
-function scrollDown() {
+const STICK_THRESHOLD_PX = 60;
+const stickToBottom = ref(true);
+
+function isAtBottom(): boolean {
+  const el = scroller.value;
+  if (!el) return true;
+  return el.scrollHeight - el.scrollTop - el.clientHeight < STICK_THRESHOLD_PX;
+}
+
+function onScroll() {
+  stickToBottom.value = isAtBottom();
+}
+
+function scrollDown(force = false) {
   nextTick(() => {
     const el = scroller.value;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
+    if (force) stickToBottom.value = true;
   });
 }
-watch(messages, () => scrollDown(), { flush: "post" });
-onMounted(() => scrollDown());
+
+watch(messages, (next, prev) => {
+  const last  = next?.[next.length - 1];
+  const lastP = prev?.[prev.length - 1];
+  // 메시지 배열이 아예 새로 로드된 경우(대화 전환 등) → 첫 진입처럼 무조건 내려감.
+  if (!prev || prev.length === 0) { scrollDown(true); return; }
+  if (!last || last.id === lastP?.id) return; // 새 메시지 없음
+  // 내가 보낸 메시지면 항상 끝까지. 그 외엔 stick 상태일 때만.
+  if (last.sender_id === me.value?.id || stickToBottom.value) {
+    scrollDown(true);
+  }
+}, { flush: "post" });
+
+onMounted(() => scrollDown(true));
 
 // ── Composer ──────────────────────────────────────────────────────────────
 const draft = ref("");
@@ -61,7 +92,7 @@ async function onSend() {
       return;
     }
     draft.value = "";
-    scrollDown();
+    scrollDown(true);
   } finally {
     sending.value = false;
   }
@@ -100,6 +131,7 @@ function isMine(senderId: string) {
     <div
       ref="scroller"
       class="flex-1 overflow-y-auto px-4 py-3 space-y-2"
+      @scroll.passive="onScroll"
     >
       <div
         v-if="messages.length === 0"
