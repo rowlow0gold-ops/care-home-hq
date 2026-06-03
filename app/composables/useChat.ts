@@ -48,7 +48,11 @@ export interface InviteRow {
   requested_at:        string;
 }
 
-const POLL_INTERVAL_MS = 4000;
+// While a thread is open, poll fast so messages feel near-instant. When
+// nothing is open (background work: auto-accept invites, refresh badge),
+// drop to a calmer cadence to be polite to the API.
+const POLL_INTERVAL_OPEN_MS  = 1000;
+const POLL_INTERVAL_IDLE_MS  = 3000;
 
 export function useChat() {
   const api  = useApi();
@@ -199,13 +203,20 @@ export function useChat() {
   function startPolling() {
     if (pollerActive.value) return;
     pollerActive.value = true;
-    // Fire once immediately, then on an interval.
-    void pollOnce();
-    const handle = setInterval(() => void pollOnce(), POLL_INTERVAL_MS);
+    // Adaptive loop: re-arm a single setTimeout based on whether a thread
+    // is open. This makes interval changes take effect on the *next* tick
+    // (no waiting out the old 4s before snapping to 1s when a chat opens).
+    let handle: ReturnType<typeof setTimeout> | null = null;
+    const tick = async () => {
+      await pollOnce();
+      const next = openConvId.value ? POLL_INTERVAL_OPEN_MS : POLL_INTERVAL_IDLE_MS;
+      handle = setTimeout(tick, next);
+    };
+    void tick();
     if (import.meta.client) {
-      // Clean up on full page unload — the SPA-level cleanup is handled by
-      // Nuxt's HMR teardown; this just covers the browser-close case.
-      window.addEventListener("beforeunload", () => clearInterval(handle), { once: true });
+      window.addEventListener("beforeunload", () => {
+        if (handle) clearTimeout(handle);
+      }, { once: true });
     }
   }
 

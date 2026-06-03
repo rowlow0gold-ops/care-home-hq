@@ -67,6 +67,11 @@ async function onSend() {
   }
 }
 function onKey(e: KeyboardEvent) {
+  // Korean IME bug: pressing Enter while a syllable is still being composed
+  // ("오이" was being submitted as "오" because the second jamo was still in
+  // the composer) fires keydown with the composition active. `isComposing`
+  // covers Chrome/FF; `keyCode === 229` covers Safari's pre-spec behaviour.
+  if (e.isComposing || (e as any).keyCode === 229) return;
   if (e.key === "Enter" && !e.shiftKey) {
     e.preventDefault();
     void onSend();
