@@ -76,11 +76,16 @@ watch(messages, (next, prev) => {
   }
 }, { flush: "post" });
 
-onMounted(() => scrollDown(true));
+onMounted(() => {
+  scrollDown(true);
+  nextTick().then(() => composer.value?.focus());
+});
 
 // ── Composer ──────────────────────────────────────────────────────────────
-const draft = ref("");
-const sending = ref(false);
+const draft     = ref("");
+const sending   = ref(false);
+const composer  = ref<HTMLTextAreaElement | null>(null);
+
 async function onSend() {
   const body = draft.value.trim();
   if (!body || sending.value) return;
@@ -95,6 +100,11 @@ async function onSend() {
     scrollDown(true);
   } finally {
     sending.value = false;
+    // Put the caret back in the box so the user can keep typing without
+    // tapping the field again. nextTick lets Vue re-enable the textarea
+    // (disabled=sending was just flipped) before we focus it.
+    await nextTick();
+    composer.value?.focus();
   }
 }
 function onKey(e: KeyboardEvent) {
@@ -176,6 +186,7 @@ function isMine(senderId: string) {
 
       <div class="flex items-end gap-2 max-w-2xl mx-auto">
         <textarea
+          ref="composer"
           v-model="draft"
           rows="1"
           placeholder="메시지 입력 (Enter 전송, Shift+Enter 줄바꿈)"
