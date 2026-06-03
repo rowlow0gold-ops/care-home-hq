@@ -110,7 +110,7 @@ async function chatWithDecider(r: LeaveRow) {
       toast.error("대화 시작 실패", "오류");
       return;
     }
-    router.push(`/tablet/chat/${conv.id}`);
+    router.push({ path: "/tablet/chat", query: { conv: conv.id } });
   } finally {
     chatStartingId.value = null;
   }

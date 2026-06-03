@@ -1,22 +1,25 @@
 /**
- * Chat client — shared by the HQ web and the caregiver tablet.
+ * Chat client — shared by HQ web and the caregiver tablet.
  *
- * Polling contract (per the desktop handoff note):
- *   every 4 s:
- *     1. GET /chat/invites  → auto-accept every pending invite
- *     2. GET /chat/conversations  → conversation list
- *     3. for the currently-open conversation:
- *          GET /chat/conversations/:id/messages?since=<last_msg_id>
- *          (the server marks them read for us)
+ * Polling: a single setTimeout chain ticks at 1.5 s (idle) / 1 s (thread open).
+ * Each tick: auto-accepts pending invites → refreshes conversation list →
+ * if a thread is open, since-cursor appends new messages.
  *
- * Auto-accepting is critical — when the desktop (administrator) starts a
- * chat, the tablet has to *silently* accept the invite or the conversation
- * never appears.
+ * Resilience:
+ *   - pollOnce never throws (every fetch is try/caught individually + the
+ *     whole body is wrapped in another try/catch in the tick), so the chain
+ *     never dies.
+ *   - On document `visibilitychange` (tab refocused) and `online`, we fire a
+ *     poll immediately instead of waiting out the timer — this fixes the
+ *     "I had to refresh to see the new message" symptom when the browser
+ *     throttled the timer in a background tab.
  *
- * The composable is a singleton via `useState` so multiple components on the
- * same page (e.g. the bottom-nav unread badge + the chat list) share state.
+ * Singleton via `useState` so the bottom-nav badge + the chat page share state.
+ *
+ * Also exports a 한글 초성 + ranked search helper (`matchScore`) ported from
+ * the Tauri desktop's chat search.
  */
-import { ref, computed } from "vue";
+import { computed } from "vue";
 
 export interface ConversationSummary {
   id:                string;
@@ -48,44 +51,71 @@ export interface InviteRow {
   requested_at:        string;
 }
 
-// While a thread is open, poll fast so messages feel near-instant. When
-// nothing is open (background work: auto-accept invites, refresh badge),
-// drop to a calmer cadence to be polite to the API.
-const POLL_INTERVAL_OPEN_MS  = 1000;
-const POLL_INTERVAL_IDLE_MS  = 3000;
+export interface ChatContact {
+  id:          string;
+  full_name:   string;
+  role:        string;
+  position:    string;
+  branch_id:   string | null;
+  branch_name: string | null;
+}
+
+// ─── 한글 초성 검색 ────────────────────────────────────────────────────────
+const CHO = ["ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ","ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"];
+export function toChosung(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const code = s.charCodeAt(i);
+    out += code >= 0xac00 && code <= 0xd7a3 ? CHO[Math.floor((code - 0xac00) / 588)] : s[i];
+  }
+  return out;
+}
+/** Ranked score: 0 = no match. Higher = more relevant. */
+export function matchScore(name: string, position: string, q: string): number {
+  const n = name.toLowerCase();
+  const c = toChosung(name);
+  const p = (position || "").toLowerCase();
+  if (n === q)              return 100;
+  if (n.startsWith(q))      return 85;
+  if (c.startsWith(q))      return 75;
+  if (n.includes(q))        return 65;
+  if (c.includes(q))        return 55;
+  if (p.startsWith(q))      return 40;
+  if (p.includes(q))        return 30;
+  return 0;
+}
+
+const POLL_INTERVAL_OPEN_MS = 1000;
+const POLL_INTERVAL_IDLE_MS = 1500;
 
 export function useChat() {
   const api  = useApi();
   const auth = useAuth();
 
-  // Singletons across the whole app.
-  const conversations = useState<ConversationSummary[]>("chat:conversations", () => []);
-  const openConvId    = useState<string | null>("chat:openConvId", () => null);
-  // Keyed by conversation_id.
+  const conversations  = useState<ConversationSummary[]>("chat:conversations", () => []);
+  const openConvId     = useState<string | null>("chat:openConvId", () => null);
   const messagesByConv = useState<Record<string, ChatMessage[]>>("chat:messagesByConv", () => ({}));
 
-  // Singleton polling state — only the first useChat() call starts the timer.
   const pollerActive = useState<boolean>("chat:pollerActive", () => false);
   const pollingNow   = useState<boolean>("chat:pollingNow",   () => false);
+  // Bumped by every poll that mutates state; lets components watch it as a
+  // cheap "something changed" signal when a more specific watch is awkward.
+  const pollTick     = useState<number>("chat:pollTick", () => 0);
 
-  // Total unread across every conversation — used by the bottom nav badge.
   const totalUnread = computed(() =>
     conversations.value.reduce((sum, c) => sum + (c.unread_count ?? 0), 0),
   );
 
-  // ─── core ops ─────────────────────────────────────────────────────────────
+  // ─── core ops (each one swallows its own errors) ────────────────────────
 
   async function autoAcceptInvites(): Promise<number> {
     try {
       const invites = await api.get<InviteRow[]>("/v1/chat/invites");
       if (!invites?.length) return 0;
-      // Accept sequentially; if one fails (already accepted, race), keep going.
       let accepted = 0;
       for (const iv of invites) {
-        try {
-          await api.post(`/v1/chat/invites/${iv.id}/accept`);
-          accepted += 1;
-        } catch { /* ignore — next poll will retry */ }
+        try { await api.post(`/v1/chat/invites/${iv.id}/accept`); accepted += 1; }
+        catch { /* next poll will retry */ }
       }
       return accepted;
     } catch { return 0; }
@@ -94,10 +124,9 @@ export function useChat() {
   async function refreshConversations() {
     try {
       conversations.value = await api.get<ConversationSummary[]>("/v1/chat/conversations");
-    } catch { /* swallow — keep last good list */ }
+    } catch { /* keep last good */ }
   }
 
-  /** Initial / re-open load: latest 50 (ASC). */
   async function loadMessages(convId: string) {
     try {
       const rows = await api.get<ChatMessage[]>(`/v1/chat/conversations/${convId}/messages`);
@@ -105,7 +134,6 @@ export function useChat() {
     } catch { /* swallow */ }
   }
 
-  /** Polling tick for the currently-open conversation: since-cursor append. */
   async function pollMessages(convId: string) {
     const existing = messagesByConv.value[convId] ?? [];
     const lastId   = existing.length ? existing[existing.length - 1]!.id : undefined;
@@ -130,46 +158,24 @@ export function useChat() {
         `/v1/chat/conversations/${convId}/messages`,
         { body: trimmed },
       );
-      // Optimistic append (the server-side trigger will bump last_message_at).
       const existing = messagesByConv.value[convId] ?? [];
-      messagesByConv.value = {
-        ...messagesByConv.value,
-        [convId]: [...existing, row],
-      };
-      // Update the list's preview eagerly so the bottom-nav badge clears
-      // without waiting for the next refreshConversations() tick.
+      messagesByConv.value = { ...messagesByConv.value, [convId]: [...existing, row] };
       const idx = conversations.value.findIndex(c => c.id === convId);
       if (idx >= 0) {
         const c = conversations.value[idx]!;
         conversations.value.splice(idx, 1, {
-          ...c,
-          last_body:       row.body,
-          last_message_at: row.sent_at,
-          unread_count:    0,
+          ...c, last_body: row.body, last_message_at: row.sent_at, unread_count: 0,
         });
       }
       return row;
-    } catch {
-      return null;
-    }
+    } catch { return null; }
   }
 
-  /**
-   * Start a new chat with `invitee_id`. If there's already an existing chat
-   * with this person (us + invitee = 2 members, no others), reuse it.
-   */
   async function startConversation(invitee_id: string, title?: string): Promise<ConversationSummary | null> {
-    // Reuse: any of my conversations whose `other_names` is exactly this person?
-    // We don't have the invitee's name here, so we just try to match the
-    // simplest case: the conversation summary's other_names is a single string
-    // that doesn't contain a comma. Worst case, a duplicate gets created — not
-    // a problem, just two chats.
     try {
       const row = await api.post<ConversationSummary>("/v1/chat/conversations", {
-        invitee_id,
-        title: title || undefined,
+        invitee_id, title: title || undefined,
       });
-      // Push to list eagerly.
       conversations.value = [row, ...conversations.value.filter(c => c.id !== row.id)];
       return row;
     } catch { return null; }
@@ -185,15 +191,11 @@ export function useChat() {
     } catch { /* swallow */ }
   }
 
-  /** 전체삭제 — fire DELETEs in parallel; remove everything from local state. */
   async function deleteAllConversations(): Promise<number> {
     const ids = conversations.value.map(c => c.id);
     if (!ids.length) return 0;
-    const results = await Promise.allSettled(
-      ids.map(id => api.delete(`/v1/chat/conversations/${id}`)),
-    );
-    const ok = results.filter(r => r.status === "fulfilled").length;
-    // Optimistic: just refetch.
+    const r = await Promise.allSettled(ids.map(id => api.delete(`/v1/chat/conversations/${id}`)));
+    const ok = r.filter(x => x.status === "fulfilled").length;
     await refreshConversations();
     messagesByConv.value = {};
     return ok;
@@ -202,13 +204,14 @@ export function useChat() {
   // ─── polling loop ─────────────────────────────────────────────────────────
 
   async function pollOnce() {
-    if (!auth.me.value) return; // not logged in → nothing to poll
+    if (!auth.me.value)   return;
     if (pollingNow.value) return;
     pollingNow.value = true;
     try {
       await autoAcceptInvites();
       await refreshConversations();
       if (openConvId.value) await pollMessages(openConvId.value);
+      pollTick.value += 1;
     } finally {
       pollingNow.value = false;
     }
@@ -217,17 +220,25 @@ export function useChat() {
   function startPolling() {
     if (pollerActive.value) return;
     pollerActive.value = true;
-    // Adaptive loop: re-arm a single setTimeout based on whether a thread
-    // is open. This makes interval changes take effect on the *next* tick
-    // (no waiting out the old 4s before snapping to 1s when a chat opens).
     let handle: ReturnType<typeof setTimeout> | null = null;
     const tick = async () => {
-      await pollOnce();
+      // Belt-and-braces: each individual op already try/catches, but the
+      // outer try here means even a totally unexpected error can't kill the
+      // chain.
+      try { await pollOnce(); } catch { /* swallow */ }
       const next = openConvId.value ? POLL_INTERVAL_OPEN_MS : POLL_INTERVAL_IDLE_MS;
-      handle = setTimeout(tick, next);
+      handle = setTimeout(() => { void tick(); }, next);
     };
     void tick();
+
     if (import.meta.client) {
+      // Browsers throttle setTimeout in background tabs (1+ minute). When
+      // the tab becomes visible again, poll immediately — this is the most
+      // common "I had to refresh to see the message" cause.
+      const wakeUp = () => { if (document.visibilityState === "visible") void pollOnce(); };
+      document.addEventListener("visibilitychange", wakeUp);
+      window.addEventListener("focus",  wakeUp);
+      window.addEventListener("online", wakeUp);
       window.addEventListener("beforeunload", () => {
         if (handle) clearTimeout(handle);
       }, { once: true });
@@ -236,12 +247,9 @@ export function useChat() {
 
   function setOpenConversation(convId: string | null) {
     openConvId.value = convId;
-    // When opening, immediately do a fresh load so the user doesn't wait
-    // up to 4 s for the next tick.
     if (convId) void loadMessages(convId);
   }
 
-  // Resolve title for display: explicit title > other_names > fallback.
   function convTitle(c: ConversationSummary): string {
     return c.title || c.other_names || "대화";
   }
@@ -252,6 +260,7 @@ export function useChat() {
     messagesByConv,
     openConvId,
     totalUnread,
+    pollTick,
     // actions
     startPolling,
     pollOnce,
