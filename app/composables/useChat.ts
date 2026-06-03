@@ -185,6 +185,20 @@ export function useChat() {
     } catch { /* swallow */ }
   }
 
+  /** 전체삭제 — fire DELETEs in parallel; remove everything from local state. */
+  async function deleteAllConversations(): Promise<number> {
+    const ids = conversations.value.map(c => c.id);
+    if (!ids.length) return 0;
+    const results = await Promise.allSettled(
+      ids.map(id => api.delete(`/v1/chat/conversations/${id}`)),
+    );
+    const ok = results.filter(r => r.status === "fulfilled").length;
+    // Optimistic: just refetch.
+    await refreshConversations();
+    messagesByConv.value = {};
+    return ok;
+  }
+
   // ─── polling loop ─────────────────────────────────────────────────────────
 
   async function pollOnce() {
@@ -245,6 +259,7 @@ export function useChat() {
     sendMessage,
     startConversation,
     deleteConversation,
+    deleteAllConversations,
     refreshConversations,
     loadMessages,
     convTitle,
