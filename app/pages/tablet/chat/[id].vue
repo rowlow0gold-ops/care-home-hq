@@ -122,15 +122,18 @@ function isMine(senderId: string) {
 </script>
 
 <template>
-  <div class="max-w-2xl mx-auto flex flex-col" style="min-height: calc(100vh - 4rem - 6rem);">
-    <div class="px-5 pt-4 pb-2">
+  <!-- height (not min-height) so the inner flex column has a bounded canvas;
+       the messages list then actually overflows and gets its own scrollbar.
+       4rem = top header, 5rem = bottom nav (matches the layout's pb-24). -->
+  <div class="max-w-2xl mx-auto flex flex-col" style="height: calc(100dvh - 4rem - 5rem);">
+    <div class="px-5 pt-4 pb-2 shrink-0">
       <h1 class="text-lg font-bold truncate">{{ title }}</h1>
     </div>
 
     <!-- Messages -->
     <div
       ref="scroller"
-      class="flex-1 overflow-y-auto px-4 py-3 space-y-2"
+      class="flex-1 min-h-0 overflow-y-auto px-4 py-3 space-y-2"
       @scroll.passive="onScroll"
     >
       <div
@@ -167,8 +170,10 @@ function isMine(senderId: string) {
       </template>
     </div>
 
-    <!-- Composer (sticks above bottom nav) -->
-    <div class="sticky bottom-24 px-3 py-2 bg-card border-t" style="padding-bottom: calc(env(safe-area-inset-bottom) + 0.5rem);">
+    <!-- Composer — bottom of the flex column. Doesn't need sticky because the
+         parent has a fixed height and the messages div takes the rest. -->
+    <div class="shrink-0 px-3 py-2 bg-card border-t">
+
       <div class="flex items-end gap-2 max-w-2xl mx-auto">
         <textarea
           v-model="draft"
