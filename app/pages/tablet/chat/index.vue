@@ -28,33 +28,25 @@ onMounted(() => chat.startPolling());
 const picking = ref(false);
 const query   = ref("");
 
-interface StaffRow {
-  id: string; full_name: string; role: string;
-  team_id: string | null; team_name: string | null;
-  branch_id: string | null;
+// Backend already returns only admin staff (hq + branch_manager + office_manager)
+// in caller's branch + HQ, ordered same-branch first. No client-side role filter
+// needed.
+interface ChatContact {
+  id: string; full_name: string; role: string; position: string;
+  branch_id: string | null; branch_name: string | null;
 }
 const staffLoading = ref(false);
-const staff = ref<StaffRow[]>([]);
+const staff = ref<ChatContact[]>([]);
 
-// Position-based filter mirrors the desktop UX: caregivers chat with admins.
-// In schema terms we don't ship `position` on /v1/staff, but `role` carries
-// the broad category — branch_manager (센터장) and hq (행정) are the targets.
-const ADMIN_ROLES = ["hq", "branch_manager", "office_manager"];
 async function openPicker() {
   picking.value = true;
   query.value = "";
   if (staff.value.length) return;
   staffLoading.value = true;
   try {
-    const rows = await api.get<StaffRow[]>("/v1/staff");
-    // Same branch as me, an admin role, and not myself.
-    staff.value = rows.filter(s =>
-      s.id !== me.value?.id
-      && (!me.value?.branch_id || !s.branch_id || s.branch_id === me.value.branch_id || s.branch_id === null)
-      && ADMIN_ROLES.includes(s.role),
-    );
-  } catch {
-    toast.error("직원 목록 조회 실패", "오류");
+    staff.value = await api.get<ChatContact[]>("/v1/chat/contacts");
+  } catch (e: any) {
+    toast.error(e?.data?.message ?? "직원 목록 조회 실패", "오류");
   } finally {
     staffLoading.value = false;
   }
@@ -67,7 +59,7 @@ const filteredStaff = computed(() => {
 });
 
 const startingId = ref<string | null>(null);
-async function startWith(s: StaffRow) {
+async function startWith(s: ChatContact) {
   if (startingId.value) return;
   startingId.value = s.id;
   try {
@@ -169,7 +161,7 @@ function roleLabel(r: string): string {
                 <div class="flex-1 min-w-0">
                   <div class="text-sm font-semibold">{{ s.full_name }}</div>
                   <div class="text-[11px] text-muted-foreground">
-                    {{ roleLabel(s.role) }}<span v-if="s.team_name"> · {{ s.team_name }}</span>
+                    {{ roleLabel(s.role) }}<span v-if="s.branch_name"> · {{ s.branch_name }}</span>
                   </div>
                 </div>
                 <Loader2 v-if="startingId === s.id" class="h-4 w-4 animate-spin" />
