@@ -1,0 +1,68 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: care-home-hq
+  namespace: care
+  labels: { app: care-home-hq }
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app: care-home-hq
+  template:
+    metadata:
+      labels:
+        app: care-home-hq
+    spec:
+      containers:
+        - name: hq
+          image: care-home-hq:latest
+          imagePullPolicy: Never  # image is loaded into k3s containerd by CI
+          env:
+            - name: NODE_ENV
+              value: "production"
+            - name: NITRO_PORT
+              value: "8080"
+            - name: NITRO_HOST
+              value: "0.0.0.0"
+            # Nuxt server-side proxy targets this base for /api/* calls.
+            # In prod we hit the public API hostname so the cookie domain
+            # stays consistent across the browser + the SSR round-trips.
+            - name: NUXT_API_BASE
+              value: "https://care.minhojan-world.site"
+            - name: NUXT_COOKIE_SECURE
+              value: "true"
+          ports:
+            - containerPort: 8080
+              # cloudflared runs hostNetwork, so it can only route to localhost:port.
+              # 8081 yongsan, 8082 checkout, 8083 cost, 8084 care-home-api, 8085 = care-home-hq.
+              hostPort: 8085
+          readinessProbe:
+            httpGet:
+              path: /login
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /login
+              port: 8080
+            initialDelaySeconds: 30
+            periodSeconds: 30
+          resources:
+            requests: { cpu: 100m, memory: 256Mi }
+            limits:   { cpu: 1,    memory: 768Mi }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: care-home-hq
+  namespace: care
+spec:
+  selector:
+    app: care-home-hq
+  ports:
+    - port: 8080
+      targetPort: 8080
