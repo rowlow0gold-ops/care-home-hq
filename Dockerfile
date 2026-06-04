@@ -4,19 +4,19 @@
 ############### deps ########################################################
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
-RUN corepack enable
+# Pin pnpm explicitly — corepack's auto-pick can no-op silently otherwise.
+RUN npm install -g pnpm@9
 COPY package.json pnpm-lock.yaml ./
-RUN --mount=type=cache,target=/root/.local/share/pnpm/store \
-    pnpm install --frozen-lockfile
+RUN pnpm install --frozen-lockfile
 
 ############### builder #####################################################
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
-RUN corepack enable
+RUN npm install -g pnpm@9
 ENV NUXT_TELEMETRY_DISABLED=1
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-RUN pnpm run build
+RUN pnpm run build && test -d .output/server || { echo "Nuxt build did not produce .output/server"; exit 1; }
 
 ############### runtime #####################################################
 FROM node:22-bookworm-slim AS runtime
