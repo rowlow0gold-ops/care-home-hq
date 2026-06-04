@@ -1,21 +1,18 @@
 <script setup lang="ts">
 /**
- * /tablet/schedule — 팀 스케쥴 (matches the Tauri desktop schedule design).
+ * /tablet/schedule — 2주(Biweekly) 근무표 · 데스크톱 SchedulePage 와 같은 디자인.
  *
- * Staff rows × Day columns, colored shift chips per cell. Toggle between
- * 주간 (Mon-Sun) and 월간 (full month grid). Read-only — managers do
- * writes from the HQ /schedule page or the Tauri desktop.
+ * 14일을 7×2 그리드로 보여준다. 셀에는 날짜 + 총 인원 칩 + 근무 블록 배지
+ * (12D / 12N / 8주 / 8오 / 8야). 셀 탭 → 모달에서 블록별 이름 칩을 본다.
  *
- * Source endpoint: /v1/roster — same one the HQ web schedule and the
- * Tauri desktop use, so renders are consistent across surfaces.
+ * 읽기 전용. 발행/수정은 HQ 웹 또는 데스크톱에서.
  */
-import { ChevronLeft, ChevronRight, Calendar, Users } from "@lucide/vue";
+import { ChevronLeft, ChevronRight, Users, X, Loader2 } from "@lucide/vue";
 
 definePageMeta({ layout: "tablet" });
-useHead({ title: "팀 스케쥴 · 케어닥" });
+useHead({ title: "근무표 · 케어닥" });
 
-const api    = useTabletApi();
-const { me } = useTablet();
+const api = useTabletApi();
 
 interface RosterEntry {
   id: string; user_id: string; staff_name: string;
@@ -23,376 +20,267 @@ interface RosterEntry {
   shift_hours: number; notes: string | null;
 }
 
-// ─── Date helpers (mirrors the Tauri SchedulePage) ───────────────────────────
+// ─── Date helpers ───────────────────────────────────────────────────────────
 function localDateStr(d: Date): string {
-  const y  = d.getFullYear();
-  const m  = String(d.getMonth() + 1).padStart(2, "0");
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
   const dd = String(d.getDate()).padStart(2, "0");
   return `${y}-${m}-${dd}`;
-}
-function weekMonday(d: Date): Date {
-  const c = new Date(d.getFullYear(), d.getMonth(), d.getDate());
-  const dow = c.getDay();
-  c.setDate(c.getDate() + (dow === 0 ? -6 : 1 - dow));
-  return c;
 }
 function addDays(d: Date, n: number): Date {
   const c = new Date(d.getFullYear(), d.getMonth(), d.getDate());
   c.setDate(c.getDate() + n);
   return c;
 }
-const DAY_LABELS = ["월", "화", "수", "목", "금", "토", "일"];
-const todayStr   = computed(() => localDateStr(new Date()));
-function isToday(d: Date) { return localDateStr(d) === todayStr.value; }
+const DAY_KO = ["일", "월", "화", "수", "목", "금", "토"];
 
-// ─── View toggle ──────────────────────────────────────────────────────────────
-type ViewMode = "week" | "month";
-const viewMode = ref<ViewMode>("week");
-
-// ─── Week / Month navigation ──────────────────────────────────────────────────
-const currentMonday = ref<Date>(weekMonday(new Date()));
-const weekDates = computed<Date[]>(() =>
-  Array.from({ length: 7 }, (_, i) => addDays(currentMonday.value, i)),
-);
-const weekStartStr = computed(() => localDateStr(weekDates.value[0]!));
-const weekEndStr   = computed(() => localDateStr(weekDates.value[6]!));
-function prevWeek() { currentMonday.value = addDays(currentMonday.value, -7); }
-function nextWeek() { currentMonday.value = addDays(currentMonday.value,  7); }
-function goToday() {
-  currentMonday.value = weekMonday(new Date());
-  currentMonth.value  = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-}
-function weekLabel(): string {
-  const s = weekDates.value[0]!, e = weekDates.value[6]!;
-  const fmt = (d: Date) => d.toLocaleDateString("ko-KR", { month: "short", day: "numeric" });
-  return `${fmt(s)} – ${fmt(e)}, ${e.getFullYear()}`;
+// 2-week window anchored on Sunday 2026-01-04, same as Tauri desktop so dates
+// always line up across surfaces.
+const EPOCH = new Date(2026, 0, 4);
+function periodStartOf(d: Date): Date {
+  const days = Math.floor(
+    (new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime() - EPOCH.getTime()) / 86400000,
+  );
+  const idx = Math.floor(days / 14);
+  return addDays(EPOCH, idx * 14);
 }
 
-const currentMonth = ref<Date>(new Date(new Date().getFullYear(), new Date().getMonth(), 1));
-function prevMonth() { currentMonth.value = new Date(currentMonth.value.getFullYear(), currentMonth.value.getMonth() - 1, 1); }
-function nextMonth() { currentMonth.value = new Date(currentMonth.value.getFullYear(), currentMonth.value.getMonth() + 1, 1); }
-function monthLabel(): string {
-  return currentMonth.value.toLocaleDateString("ko-KR", { month: "long", year: "numeric" });
+// ─── Shift blocks (verbatim copy of desktop's BLOCKS so colors match) ───────
+interface Block {
+  key: string; group: string; shift: string; label: string; short: string;
+  start: string; end: string; hours: number;
+  bg: string; fg: string;
 }
-const monthStartStr = computed(() => localDateStr(currentMonth.value));
-const monthEndStr   = computed(() => {
-  const d = currentMonth.value;
-  return localDateStr(new Date(d.getFullYear(), d.getMonth() + 1, 0));
+const BLOCKS: Block[] = [
+  { key: "d12", group: "h12", shift: "day",     label: "12시간 Day 07:00–19:30",   short: "12D", start: "07:00", end: "19:30", hours: 12.5, bg: "bg-amber-100 dark:bg-amber-900/40",   fg: "text-amber-900 dark:text-amber-200"  },
+  { key: "n12", group: "h12", shift: "night",   label: "12시간 Night 19:00–07:30", short: "12N", start: "19:00", end: "07:30", hours: 12.5, bg: "bg-indigo-100 dark:bg-indigo-900/40", fg: "text-indigo-900 dark:text-indigo-200"},
+  { key: "d8",  group: "h8",  shift: "day",     label: "8시간 주간 07:00–15:00",   short: "8주", start: "07:00", end: "15:00", hours: 8,    bg: "bg-emerald-100 dark:bg-emerald-900/40", fg: "text-emerald-900 dark:text-emerald-200" },
+  { key: "e8",  group: "h8",  shift: "evening", label: "8시간 오후 15:00–23:00",   short: "8오", start: "15:00", end: "23:00", hours: 8,    bg: "bg-orange-100 dark:bg-orange-900/40", fg: "text-orange-900 dark:text-orange-200" },
+  { key: "n8",  group: "h8",  shift: "night",   label: "8시간 야간 23:00–07:00",   short: "8야", start: "23:00", end: "07:00", hours: 8,    bg: "bg-sky-100 dark:bg-sky-900/40",       fg: "text-sky-900 dark:text-sky-200" },
+];
+function classify(e: RosterEntry): Block {
+  const b = BLOCKS.find(x => x.start === e.shift_start && x.end === e.shift_end);
+  if (b) return b;
+  const sh = Number(e.shift_start.slice(0, 2));
+  if (e.shift_hours >= 12) return sh < 12 ? BLOCKS[0]! : BLOCKS[1]!;
+  return sh < 12 ? BLOCKS[2]! : sh < 20 ? BLOCKS[3]! : BLOCKS[4]!;
+}
+
+// ─── State ──────────────────────────────────────────────────────────────────
+const periodStart = ref<Date>(periodStartOf(new Date()));
+const periodDays = computed(() => Array.from({ length: 14 }, (_, i) => addDays(periodStart.value, i)));
+const periodEnd  = computed(() => addDays(periodStart.value, 13));
+const weeks      = computed(() => [periodDays.value.slice(0, 7), periodDays.value.slice(7, 14)]);
+const periodLabel = computed(() => {
+  const a = periodStart.value, b = periodEnd.value;
+  return `${a.getFullYear()}.${a.getMonth() + 1}.${a.getDate()} ~ ${b.getMonth() + 1}.${b.getDate()}`;
 });
-const monthGrid = computed<Date[][]>(() => {
-  const year  = currentMonth.value.getFullYear();
-  const month = currentMonth.value.getMonth();
-  const firstDay = new Date(year, month, 1);
-  const lastDay  = new Date(year, month + 1, 0);
-  const gridStart = weekMonday(firstDay);
-  const lastDow   = lastDay.getDay();
-  const gridEnd   = addDays(lastDay, lastDow === 0 ? 0 : 7 - lastDow);
-  const weeks: Date[][] = [];
-  let cur = new Date(gridStart);
-  while (cur <= gridEnd) {
-    const week: Date[] = [];
-    for (let i = 0; i < 7; i++) {
-      week.push(new Date(cur));
-      cur.setDate(cur.getDate() + 1);
-    }
-    weeks.push(week);
+const todayStr = computed(() => localDateStr(new Date()));
+
+const loading = ref(false);
+const entries = ref<RosterEntry[]>([]);
+
+async function loadEntries() {
+  loading.value = true;
+  try {
+    entries.value = await api.get<RosterEntry[]>("/v1/roster", {
+      start: localDateStr(periodStart.value),
+      end:   localDateStr(periodEnd.value),
+    });
+  } catch {
+    entries.value = [];
+  } finally {
+    loading.value = false;
   }
-  return weeks;
-});
+}
+onMounted(() => loadEntries());
+watch(periodStart, () => loadEntries());
 
-// ─── Data load ────────────────────────────────────────────────────────────────
-const rangeStart = computed(() => viewMode.value === "week" ? weekStartStr.value  : monthStartStr.value);
-const rangeEnd   = computed(() => viewMode.value === "week" ? weekEndStr.value    : monthEndStr.value);
+function prev()    { periodStart.value = addDays(periodStart.value, -14); }
+function next()    { periodStart.value = addDays(periodStart.value,  14); }
+function goToday() { periodStart.value = periodStartOf(new Date()); }
 
-const { data: rows, pending, refresh } = await useAsyncData<RosterEntry[]>(
-  () => `tablet-roster-${viewMode.value}-${rangeStart.value}-${rangeEnd.value}`,
-  () => api.get<RosterEntry[]>("/v1/roster", { start: rangeStart.value, end: rangeEnd.value }),
-  { watch: [viewMode, rangeStart, rangeEnd] },
-);
-
-// Distinct staff for the week-view rows. We derive them from the roster
-// itself so we don't fetch /staff just for names.
-const staffRows = computed(() => {
-  const seen = new Map<string, string>();
-  for (const r of rows.value ?? []) seen.set(r.user_id, r.staff_name);
-  return Array.from(seen.entries())
-    .sort((a, b) => {
-      // "Me" first.
-      if (a[0] === me.value?.id) return -1;
-      if (b[0] === me.value?.id) return  1;
-      return a[1].localeCompare(b[1], "ko");
-    })
-    .map(([id, name]) => ({ id, name }));
-});
-
-// (staff_id, date) → entries
-const cellMap = computed(() => {
-  const m = new Map<string, RosterEntry[]>();
-  for (const e of rows.value ?? []) {
-    const k = `${e.user_id}-${e.shift_date}`;
-    if (!m.has(k)) m.set(k, []);
-    m.get(k)!.push(e);
+// ─── Display indexes ────────────────────────────────────────────────────────
+const byDate = computed<Map<string, Map<string, RosterEntry[]>>>(() => {
+  const m = new Map<string, Map<string, RosterEntry[]>>();
+  for (const e of entries.value) {
+    const b = classify(e);
+    if (!m.has(e.shift_date)) m.set(e.shift_date, new Map());
+    const dm = m.get(e.shift_date)!;
+    if (!dm.has(b.key)) dm.set(b.key, []);
+    dm.get(b.key)!.push(e);
   }
   return m;
 });
-function cellEntries(staffId: string, d: Date): RosterEntry[] {
-  return cellMap.value.get(`${staffId}-${localDateStr(d)}`) ?? [];
+function blockCount(ds: string, key: string): number {
+  return byDate.value.get(ds)?.get(key)?.length ?? 0;
+}
+function dayTotal(ds: string): number {
+  let n = 0;
+  byDate.value.get(ds)?.forEach(v => { n += v.length; });
+  return n;
+}
+function dayBlocks(ds: string): Array<{ block: Block; list: RosterEntry[] }> {
+  const dm = byDate.value.get(ds);
+  if (!dm) return [];
+  return BLOCKS.filter(b => dm.has(b.key)).map(b => ({
+    block: b,
+    list: [...dm.get(b.key)!].sort((a, c) => a.staff_name.localeCompare(c.staff_name, "ko")),
+  }));
 }
 
-// date → entries (for month view)
-const dayMap = computed(() => {
-  const m = new Map<string, RosterEntry[]>();
-  for (const e of rows.value ?? []) {
-    if (!m.has(e.shift_date)) m.set(e.shift_date, []);
-    m.get(e.shift_date)!.push(e);
-  }
-  return m;
-});
-function dayEntries(d: Date): RosterEntry[] {
-  return dayMap.value.get(localDateStr(d)) ?? [];
-}
+// Period totals — caregiver headcount + total shift count (small header chip).
+const totalShifts = computed(() => entries.value.length);
+const uniquePeople = computed(() => new Set(entries.value.map(e => e.user_id)).size);
 
-function shiftLabel(e: RosterEntry): string {
-  return `${e.shift_start}–${e.shift_end} (${e.shift_hours}h)`;
+// ─── Day modal ──────────────────────────────────────────────────────────────
+const dayDialog = ref(false);
+const dayDs     = ref<string>("");
+const dayLabelFor = (ds: string) => {
+  if (!ds) return "";
+  const d = new Date(ds + "T00:00:00");
+  return `${d.getMonth() + 1}/${d.getDate()}(${DAY_KO[d.getDay()]})`;
+};
+const dayLabel = computed(() => dayLabelFor(dayDs.value));
+function openDay(d: Date) {
+  dayDs.value = localDateStr(d);
+  dayDialog.value = true;
 }
-function shiftColor(e: RosterEntry): "teal" | "blue" | "deep-orange" | "purple" {
-  if (e.shift_hours >= 12) return "teal";
-  if (e.shift_start === "07:00") return "blue";
-  if (e.shift_start === "15:00") return "deep-orange";
-  return "purple";
-}
-function weekHours(staffId: string): number {
-  if (viewMode.value !== "week") return 0;
-  return (rows.value ?? [])
-    .filter(e => e.user_id === staffId)
-    .reduce((sum, e) => sum + e.shift_hours, 0);
-}
-
-// Month-cell expand state (3 visible, then "더보기")
-const expandedDays = ref(new Set<string>());
-function toggleExpand(d: Date) {
-  const k = localDateStr(d);
-  const next = new Set(expandedDays.value);
-  if (next.has(k)) next.delete(k); else next.add(k);
-  expandedDays.value = next;
-}
-function isExpanded(d: Date): boolean { return expandedDays.value.has(localDateStr(d)); }
 </script>
 
 <template>
-  <div class="px-4 py-5 max-w-7xl mx-auto">
+  <div class="max-w-3xl mx-auto px-3 sm:px-5 py-5">
     <!-- Header -->
-    <div class="flex items-center justify-between gap-3 mb-3 flex-wrap">
-      <div>
-        <h1 class="text-2xl font-bold">팀 스케쥴</h1>
-        <p class="text-xs text-muted-foreground mt-0.5">
-          내 팀 근무 일정 (읽기 전용)
-        </p>
-      </div>
-      <div class="inline-flex rounded-lg border border-input bg-card overflow-hidden text-sm">
-        <button
-          type="button"
-          class="px-4 h-10 font-medium"
-          :class="viewMode === 'week' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-          @click="viewMode = 'week'"
-        >주간</button>
-        <button
-          type="button"
-          class="px-4 h-10 font-medium border-l border-input"
-          :class="viewMode === 'month' ? 'bg-primary text-primary-foreground' : 'hover:bg-muted'"
-          @click="viewMode = 'month'"
-        >월간</button>
-      </div>
-    </div>
-
-    <!-- Navigator -->
-    <div class="flex items-center gap-2 mb-4">
+    <div class="flex items-center gap-2 mb-3 flex-wrap">
+      <h1 class="text-xl sm:text-2xl font-bold flex-1 min-w-0">근무표 <span class="text-xs font-normal text-muted-foreground ml-1">2주</span></h1>
       <button
         type="button"
-        class="h-9 w-9 rounded-lg border border-input bg-card inline-flex items-center justify-center hover:bg-muted"
-        @click="viewMode === 'week' ? prevWeek() : prevMonth()"
-        :aria-label="viewMode === 'week' ? '이전 주' : '이전 달'"
-      ><ChevronLeft class="h-4 w-4" /></button>
-      <button
-        type="button"
-        class="h-9 w-9 rounded-lg border border-input bg-card inline-flex items-center justify-center hover:bg-muted"
-        @click="viewMode === 'week' ? nextWeek() : nextMonth()"
-        :aria-label="viewMode === 'week' ? '다음 주' : '다음 달'"
-      ><ChevronRight class="h-4 w-4" /></button>
-      <span class="text-base font-semibold mx-1">
-        {{ viewMode === 'week' ? weekLabel() : monthLabel() }}
-      </span>
-      <button
-        type="button"
-        class="h-9 px-3 rounded-lg text-xs font-medium text-muted-foreground hover:bg-muted"
+        class="h-9 px-3 rounded-md border border-input bg-card text-xs font-medium hover:bg-muted"
         @click="goToday"
-      >오늘</button>
-      <span v-if="pending" class="ml-auto text-xs text-muted-foreground">불러오는 중…</span>
+      >이번 기간</button>
+      <button class="h-9 w-9 rounded-md hover:bg-muted inline-flex items-center justify-center" @click="prev">
+        <ChevronLeft class="h-4 w-4" />
+      </button>
+      <div class="text-sm font-semibold tabular-nums px-1 min-w-[10.5rem] text-center">{{ periodLabel }}</div>
+      <button class="h-9 w-9 rounded-md hover:bg-muted inline-flex items-center justify-center" @click="next">
+        <ChevronRight class="h-4 w-4" />
+      </button>
     </div>
 
-    <!-- ══ WEEK VIEW ══════════════════════════════════════════════════════════ -->
-    <div v-if="viewMode === 'week'" class="overflow-x-auto rounded-xl border bg-card">
-      <table class="w-full border-collapse" style="min-width: 720px;">
-        <thead>
-          <tr class="bg-muted/40 text-xs">
-            <th class="text-left px-3 py-2 border-b border-r font-semibold w-36">직원</th>
-            <th
-              v-for="(d, di) in weekDates" :key="di"
-              class="text-center px-2 py-2 border-b border-r last:border-r-0 font-semibold"
-              :class="isToday(d) ? 'bg-blue-50 dark:bg-blue-950/30' : ''"
-            >
-              <div>{{ DAY_LABELS[di] }}</div>
-              <div class="font-normal" :class="isToday(d) ? 'text-primary font-semibold' : 'text-muted-foreground'">
-                {{ d.getMonth() + 1 }}/{{ d.getDate() }}
-              </div>
-            </th>
-            <th class="text-center px-3 py-2 border-b border-l w-20 font-semibold">근무시간</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr v-if="staffRows.length === 0">
-            <td :colspan="9" class="text-center py-12 text-muted-foreground text-sm">
-              <Calendar class="h-8 w-8 mx-auto mb-2 opacity-40" />
-              내 팀의 이번 주 근무 데이터가 없습니다.
-            </td>
-          </tr>
-          <tr
-            v-for="s in staffRows" :key="s.id"
-            class="hover:bg-muted/20"
-          >
-            <td class="px-3 py-2 border-b border-r text-sm whitespace-nowrap">
-              <Users class="h-3.5 w-3.5 inline-block mr-1 text-muted-foreground" />
-              {{ s.name }}
-              <span
-                v-if="s.id === me?.id"
-                class="ml-1 inline-block bg-primary text-primary-foreground rounded px-1.5 py-0.5 text-[10px] font-semibold"
-              >나</span>
-            </td>
-            <td
-              v-for="(d, di) in weekDates" :key="di"
-              class="px-1.5 py-1.5 border-b border-r last:border-r-0 align-top"
-              :class="isToday(d) ? 'bg-blue-50/60 dark:bg-blue-950/20' : ''"
-              style="min-height: 50px;"
-            >
-              <div
-                v-for="e in cellEntries(s.id, d)" :key="e.id"
-                class="shift-chip"
-                :class="`shift-chip--${shiftColor(e)}`"
-                :title="(e.notes ? `${shiftLabel(e)} · ${e.notes}` : shiftLabel(e))"
-              >
-                {{ shiftLabel(e) }}
-              </div>
-            </td>
-            <td class="px-3 py-2 border-b border-l text-center text-sm tabular-nums">
-              <span :class="weekHours(s.id) > 0 ? 'font-semibold' : 'text-muted-foreground/50'">
-                {{ weekHours(s.id) > 0 ? weekHours(s.id) + 'h' : '—' }}
-              </span>
-            </td>
-          </tr>
-        </tbody>
-      </table>
+    <!-- Tiny summary line (read-only on tablet, no publish action) -->
+    <div class="flex items-center gap-3 text-xs text-muted-foreground mb-3 flex-wrap">
+      <span class="inline-flex items-center gap-1"><Users class="h-3.5 w-3.5" /> {{ uniquePeople }}명 · 근무 {{ totalShifts }}건</span>
+      <span v-if="loading" class="inline-flex items-center gap-1"><Loader2 class="h-3 w-3 animate-spin" /> 불러오는 중…</span>
     </div>
 
-    <!-- ══ MONTH VIEW ══════════════════════════════════════════════════════════ -->
-    <div v-else class="rounded-xl border bg-card overflow-hidden">
-      <div class="grid grid-cols-7 bg-muted/40 text-xs font-semibold text-center text-muted-foreground border-b">
-        <div v-for="dl in DAY_LABELS" :key="dl" class="py-2">{{ dl }}</div>
-      </div>
-      <div class="grid grid-cols-7">
-        <template v-for="(week, wi) in monthGrid" :key="wi">
-          <div
-            v-for="(d, di) in week" :key="di"
-            class="border-r border-b last:border-r-0 p-1.5 min-h-[88px] bg-background"
-            :class="[
-              d.getMonth() !== currentMonth.getMonth() ? 'bg-muted/20' : '',
-              isToday(d) ? 'bg-blue-50/60 dark:bg-blue-950/20' : '',
-            ]"
-          >
-            <div class="text-xs font-semibold mb-1 flex items-center gap-1">
-              <span
-                class="inline-block px-1 min-w-[20px] text-center rounded-full"
-                :class="[
-                  isToday(d) ? 'bg-primary text-primary-foreground' : '',
-                  d.getMonth() !== currentMonth.getMonth() ? 'text-muted-foreground/40' : '',
-                ]"
-              >{{ d.getDate() }}</span>
-            </div>
-            <template v-for="(e, ei) in dayEntries(d)" :key="e.id">
-              <div
-                v-if="isExpanded(d) || ei < 3"
-                class="month-bar"
-                :class="`shift-chip--${shiftColor(e)}`"
-                :title="`${e.staff_name} · ${shiftLabel(e)}${e.notes ? ' · ' + e.notes : ''}`"
-              >
-                <span class="font-medium truncate flex-1">
-                  {{ e.staff_name }}<span v-if="e.user_id === me?.id" class="ml-0.5">★</span>
-                </span>
-                <span class="opacity-70 ml-1 text-[10px]">{{ e.shift_start }}</span>
-              </div>
-            </template>
-            <button
-              v-if="dayEntries(d).length > 3"
-              type="button"
-              class="text-[10px] text-muted-foreground hover:text-foreground hover:bg-muted/40 rounded px-1 py-0.5"
-              @click="toggleExpand(d)"
-            >
-              {{ isExpanded(d) ? '▲ 접기' : `+${dayEntries(d).length - 3} 더보기` }}
-            </button>
+    <!-- Day-of-week header -->
+    <div class="grid grid-cols-7 border border-b-0 rounded-t-xl overflow-hidden bg-card">
+      <div
+        v-for="(d, i) in DAY_KO" :key="d"
+        class="text-center text-[11px] sm:text-xs font-semibold py-1.5"
+        :class="i === 0 ? 'text-rose-600 dark:text-rose-300'
+               : i === 6 ? 'text-sky-600 dark:text-sky-300'
+                         : 'text-muted-foreground'"
+      >{{ d }}</div>
+    </div>
+
+    <!-- 2-week grid -->
+    <div class="border border-t-0 rounded-b-xl overflow-hidden bg-card">
+      <div v-for="(week, wi) in weeks" :key="wi" class="grid grid-cols-7">
+        <button
+          v-for="d in week" :key="localDateStr(d)"
+          type="button"
+          class="day-cell text-left p-1.5 sm:p-2 border-t border-l first:border-l-0 hover:bg-muted/40 transition-colors"
+          :class="{
+            'today-ring': localDateStr(d) === todayStr,
+          }"
+          @click="openDay(d)"
+        >
+          <div class="flex items-center justify-between mb-1">
+            <span
+              class="text-[11px] sm:text-xs font-bold tabular-nums"
+              :class="d.getDay() === 0 ? 'text-rose-600 dark:text-rose-300'
+                    : d.getDay() === 6 ? 'text-sky-600 dark:text-sky-300'
+                                       : 'text-foreground'"
+            >{{ d.getMonth() + 1 }}/{{ d.getDate() }}</span>
+            <span
+              v-if="dayTotal(localDateStr(d))"
+              class="text-[9px] sm:text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-muted text-foreground"
+            >{{ dayTotal(localDateStr(d)) }}</span>
           </div>
-        </template>
+          <template v-if="dayTotal(localDateStr(d))">
+            <div class="flex flex-wrap gap-1">
+              <span
+                v-for="b in BLOCKS" :key="b.key"
+                v-show="blockCount(localDateStr(d), b.key)"
+                class="text-[9px] sm:text-[10px] font-semibold px-1.5 py-0.5 rounded"
+                :class="[b.bg, b.fg]"
+              >{{ b.short }} {{ blockCount(localDateStr(d), b.key) }}</span>
+            </div>
+          </template>
+          <div v-else class="text-[10px] text-muted-foreground/60 mt-2 text-center">발행 전</div>
+        </button>
       </div>
     </div>
 
     <!-- Legend -->
-    <div class="mt-3 flex items-center gap-3 text-[11px] text-muted-foreground">
-      <span class="inline-flex items-center gap-1">
-        <span class="h-2.5 w-3 rounded shift-chip--teal" /> 12시간
-      </span>
-      <span class="inline-flex items-center gap-1">
-        <span class="h-2.5 w-3 rounded shift-chip--blue" /> 오전
-      </span>
-      <span class="inline-flex items-center gap-1">
-        <span class="h-2.5 w-3 rounded shift-chip--deep-orange" /> 오후
-      </span>
-      <span class="inline-flex items-center gap-1">
-        <span class="h-2.5 w-3 rounded shift-chip--purple" /> 야간
-      </span>
-      <span class="ml-auto">★ = 나</span>
+    <div class="flex flex-wrap gap-1.5 mt-3">
+      <span
+        v-for="b in BLOCKS" :key="b.key"
+        class="text-[10px] font-semibold px-2 py-0.5 rounded"
+        :class="[b.bg, b.fg]"
+      >{{ b.short }} = {{ b.label }}</span>
+    </div>
+
+    <!-- Day modal -->
+    <div
+      v-if="dayDialog"
+      class="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4"
+      @click.self="dayDialog = false"
+    >
+      <div class="bg-card w-full sm:max-w-lg rounded-t-2xl sm:rounded-2xl border shadow-xl max-h-[80vh] flex flex-col">
+        <div class="p-4 border-b flex items-center justify-between gap-2">
+          <div class="text-base font-bold truncate">
+            {{ dayLabel }}
+            <span class="text-xs font-normal text-muted-foreground ml-1">근무 {{ dayTotal(dayDs) }}명</span>
+          </div>
+          <button class="h-9 w-9 rounded-md hover:bg-muted inline-flex items-center justify-center" @click="dayDialog = false">
+            <X class="h-4 w-4" />
+          </button>
+        </div>
+        <div class="flex-1 overflow-y-auto p-4 space-y-4">
+          <div v-if="!dayBlocks(dayDs).length" class="py-10 text-center text-sm text-muted-foreground">
+            발행된 근무가 없습니다.
+          </div>
+          <div v-for="{ block, list } in dayBlocks(dayDs)" :key="block.key">
+            <div class="flex items-center gap-2 mb-1.5">
+              <span class="text-[10px] font-semibold px-1.5 py-0.5 rounded" :class="[block.bg, block.fg]">{{ block.label }}</span>
+              <span class="text-[11px] text-muted-foreground">{{ list.length }}명</span>
+            </div>
+            <div class="flex flex-wrap gap-1.5">
+              <span
+                v-for="e in list" :key="e.id"
+                class="text-xs px-2 py-1 rounded-full bg-muted text-foreground"
+              >{{ e.staff_name }}</span>
+            </div>
+          </div>
+        </div>
+      </div>
     </div>
   </div>
 </template>
 
 <style scoped>
-/* Shared chip — same palette as the Tauri desktop schedule. */
-.shift-chip {
-  display: block;
-  border-radius: 6px;
-  padding: 3px 6px;
-  margin-bottom: 3px;
-  font-size: 11px;
-  font-weight: 500;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.day-cell {
+  min-height: 72px;
+  background: transparent;
 }
-.shift-chip--teal        { background: #ccfbf1; color: #0f766e; }
-.shift-chip--blue        { background: #dbeafe; color: #1d4ed8; }
-.shift-chip--deep-orange { background: #ffedd5; color: #c2410c; }
-.shift-chip--purple      { background: #ede9fe; color: #6d28d9; }
-
-:root.dark .shift-chip--teal        { background: rgba(20,184,166,0.18); color: #5eead4; }
-:root.dark .shift-chip--blue        { background: rgba(59,130,246,0.18); color: #93c5fd; }
-:root.dark .shift-chip--deep-orange { background: rgba(249,115,22,0.18); color: #fdba74; }
-:root.dark .shift-chip--purple      { background: rgba(139,92,246,0.18); color: #c4b5fd; }
-
-.month-bar {
-  display: flex;
-  align-items: center;
-  border-radius: 4px;
-  padding: 2px 5px;
-  margin-bottom: 2px;
-  font-size: 10px;
-  line-height: 1.1;
-  overflow: hidden;
+@media (min-width: 640px) {
+  .day-cell { min-height: 104px; }
+}
+.today-ring {
+  outline: 2px solid hsl(var(--primary));
+  outline-offset: -2px;
+  border-radius: 2px;
 }
 </style>
