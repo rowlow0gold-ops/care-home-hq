@@ -13,7 +13,11 @@ RUN pnpm install --frozen-lockfile
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
 RUN npm install -g pnpm@9
-ENV NUXT_TELEMETRY_DISABLED=1
+# nuxt.config.ts pins nitro.preset to 'cloudflare-pages' for CF Pages deploys.
+# For the k3s pod we need the standalone node server, so override at build
+# time — doesn't touch the committed config.
+ENV NUXT_TELEMETRY_DISABLED=1 \
+    NITRO_PRESET=node-server
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN pnpm run build && test -d .output/server || { echo "Nuxt build did not produce .output/server"; exit 1; }
