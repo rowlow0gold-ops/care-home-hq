@@ -18,7 +18,7 @@ const route = useRoute();
 // to /tablet/* by the auth middleware and never see this nav, so we hide
 // the items they'd 403 on. minRole 3 = branch_manager and above only.
 const nav = computed(() => [
-  { to: "/", label: "대시보드", icon: LayoutDashboard, minRole: 3 },
+  { to: "/dashboard", label: "대시보드", icon: LayoutDashboard, minRole: 3 },
   { to: "/staff", label: "직원 관리", icon: UsersRound, minRole: 3 },
   { to: "/care", label: "케어 관리", icon: HeartPulse, minRole: 3 },
   { to: "/org", label: "조직도", icon: Network, minRole: 2 },
@@ -67,7 +67,7 @@ const initials = computed(() => {
   <div class="min-h-screen flex bg-muted/30">
     <aside class="w-64 border-r bg-card flex flex-col">
       <!-- Brand — click to go home -->
-      <NuxtLink to="/" class="h-16 flex items-center px-5 border-b hover:bg-muted/40 transition-colors">
+      <NuxtLink to="/dashboard" class="h-16 flex items-center px-5 border-b hover:bg-muted/40 transition-colors">
         <div class="h-9 w-9 rounded-lg bg-primary text-primary-foreground flex items-center justify-center mr-3">
           <Heart class="h-5 w-5" />
         </div>

@@ -69,7 +69,7 @@ async function onSubmit() {
     // Always navigate after a successful login. Honor ?redirect=… if present
     // (the auth middleware sets it when bouncing an unauthenticated request),
     // otherwise land on the dashboard.
-    const redirect = (route.query.redirect as string | undefined) ?? "/";
+    const redirect = (route.query.redirect as string | undefined) ?? "/dashboard";
     await navigateTo(redirect);
   } catch (err: any) {
     error.value =
