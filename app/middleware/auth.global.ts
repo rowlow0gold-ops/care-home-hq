@@ -1,34 +1,23 @@
 /**
  * Global auth gate. Runs on every navigation.
  *
- * - "/" is the public marketing landing page — anyone can view it. Logged-in
- *   managers visiting "/" get bounced to "/dashboard" so they don't see the
- *   marketing site after signing in.
- * - "/login" is also public.
- * - "/tablet/*" has its own session handling; skip the HQ gate entirely.
- * - Everything else requires a manager-level HQ session.
+ * - If route is public (login), let it through.
+ * - Otherwise hydrate `me` from /api/auth/me on first navigation.
+ *   If it fails, bounce to /login with a redirect query.
  */
-const PUBLIC_ROUTES = new Set(["/", "/login"]);
+const PUBLIC_ROUTES = new Set(["/login"]);
 
 export default defineNuxtRouteMiddleware(async (to) => {
   const { me, refresh } = useAuth();
 
+  // /tablet/* has its own auth gate (tablet.global) with a separate session
+  // cookie. Skip the HQ auth check entirely so it doesn't bounce caregivers
+  // to /login (which would fail because they have no HQ password).
   if (to.path.startsWith("/tablet")) {
     return;
   }
 
   if (PUBLIC_ROUTES.has(to.path)) {
-    // Logged-in managers landing on the public homepage should jump
-    // straight to the dashboard. We still hydrate so we know who they are.
-    if (to.path === "/") {
-      if (!me.value) await refresh().catch(() => {});
-      if (me.value && me.value.role !== "caregiver" && me.value.role !== "nurse") {
-        return navigateTo("/dashboard");
-      }
-      if (me.value && (me.value.role === "caregiver" || me.value.role === "nurse")) {
-        return navigateTo("/tablet");
-      }
-    }
     return;
   }
 
