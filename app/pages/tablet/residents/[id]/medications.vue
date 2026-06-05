@@ -3,7 +3,7 @@
  * /tablet/residents/[id]/medications — list active meds for this resident,
  * tap one to record administration (gave / refused / missed) with one tap.
  */
-import { Loader2, Pill, CheckCircle2, XCircle, MinusCircle } from "@lucide/vue";
+import { Loader2, Pill, CheckCircle2, XCircle, MinusCircle, PillBottle } from "@lucide/vue";
 
 definePageMeta({ layout: "tablet" });
 
@@ -31,6 +31,10 @@ const { data: meds, pending, refresh } = await useAsyncData(`tablet-res-meds-${i
   api.get<Med[]>(`/v1/residents/${id.value}/medications`),
 );
 
+// 활성 처방만 화면에 노출. '0건'을 확실히 알려주려면 array 자체가 비어 있는
+// 경우와 '비활성만 남은' 경우를 모두 잡아야 한다.
+const activeMeds = computed(() => (meds.value ?? []).filter(m => m.active));
+
 const recording = ref<string | null>(null);
 
 async function record(med: Med, status: "given" | "refused" | "missed", notes?: string) {
@@ -54,13 +58,25 @@ async function record(med: Med, status: "given" | "refused" | "missed", notes?: 
     <h1 class="text-2xl font-bold mb-1">투약 기록</h1>
     <p class="text-sm text-muted-foreground mb-5">{{ detail?.full_name }} 어르신</p>
 
-    <div v-if="pending" class="py-12 text-center text-muted-foreground">불러오는 중…</div>
-    <div v-else-if="(meds?.length ?? 0) === 0" class="py-12 text-center text-muted-foreground">
-      처방된 약이 없습니다.
+    <div v-if="pending" class="py-12 text-center text-muted-foreground">
+      <Loader2 class="h-6 w-6 mx-auto animate-spin mb-2" />
+      불러오는 중…
+    </div>
+    <div
+      v-else-if="activeMeds.length === 0"
+      class="rounded-2xl border border-dashed bg-card py-12 px-4 text-center"
+    >
+      <div class="h-14 w-14 rounded-2xl bg-muted/60 text-muted-foreground inline-flex items-center justify-center mb-3">
+        <PillBottle class="h-7 w-7" />
+      </div>
+      <div class="text-base font-semibold text-foreground mb-1">투약 기록 없음</div>
+      <div class="text-sm text-muted-foreground">
+        이 어르신에게 처방된 약이 없습니다.
+      </div>
     </div>
 
     <ul v-else class="space-y-3">
-      <li v-for="m in meds!.filter(x => x.active)" :key="m.id" class="rounded-xl border bg-card p-4">
+      <li v-for="m in activeMeds" :key="m.id" class="rounded-xl border bg-card p-4">
         <div class="flex items-start gap-3 mb-3">
           <div class="h-12 w-12 rounded-xl bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-200 flex items-center justify-center shrink-0">
             <Pill class="h-6 w-6" />
