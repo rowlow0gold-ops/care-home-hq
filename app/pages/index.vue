@@ -305,10 +305,13 @@ const monthlyTrend = computed(() => {
 // Each chart shows the top 3 of its kind.
 function topByType(branchType: "hub" | "satellite", color: string, label: string) {
   if (branchFilter.value) return { labels: [], datasets: [] };
+  // Always surface the top 3 of this type — even if some have zero billing in
+  // the selected period. Keeping the chart shape stable matters more than
+  // hiding empty bars, and zero-amount branches are useful "not yet filed"
+  // signals on their own.
   const items = (data.value?.branches ?? [])
     .filter((b) => b.branch_type === branchType)
     .map((b) => ({ name: b.name, amount: b.last_billing_amount ?? 0 }))
-    .filter((b) => b.amount > 0)
     .sort((a, b) => b.amount - a.amount)
     .slice(0, 3);
   return {

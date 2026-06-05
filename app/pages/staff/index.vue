@@ -464,7 +464,7 @@ const scheduleSummary = computed(() => {
             v-for="p in paged"
             :key="p.id"
             class="border-t hover:bg-muted/40 cursor-pointer transition-colors"
-            @click="navigateTo(`/staff/${p.id}`)"
+            @click="navigateTo(`/staff/${p.id}?from=staff`)"
           >
             <td class="py-3 px-6 font-medium">{{ p.full_name }}</td>
             <td class="py-3 px-3">
@@ -663,7 +663,7 @@ const scheduleSummary = computed(() => {
                   :key="a.assignment_id"
                 >
                   <NuxtLink
-                    :to="`/staff/${a.user_id}`"
+                    :to="`/staff/${a.user_id}?from=staff`"
                     class="flex items-center gap-2 text-sm rounded-md px-2 py-1 -mx-2 hover:bg-muted/50 hover:text-primary transition-colors"
                   >
                     <UserCheck class="h-3.5 w-3.5 text-muted-foreground" />

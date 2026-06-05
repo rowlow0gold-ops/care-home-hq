@@ -117,7 +117,7 @@ function openBranch(branchId: string) {
 }
 function openPerson(p: OrgPerson, e: MouseEvent) {
   e.stopPropagation();
-  router.push(`/staff/${p.id}`);
+  router.push(`/staff/${p.id}?from=org`);
 }
 
 // =============================================================================

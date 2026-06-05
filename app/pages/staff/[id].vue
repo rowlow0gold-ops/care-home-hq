@@ -9,6 +9,16 @@ const router = useRouter();
 const id = route.params.id as string;
 const api = useApi();
 
+// Where did we come from? Callers pass ?from=staff / org / branch:<id> so
+// the back link goes to the right list. Default is /staff (직원 관리) since
+// that's the most common entry point.
+const back = computed(() => {
+  const from = String(route.query.from ?? "staff");
+  if (from === "org")             return { to: "/org",                          label: "조직도" };
+  if (from.startsWith("branch:")) return { to: `/branches/${from.slice(7)}`,    label: "지점 상세" };
+  return                                 { to: "/staff",                        label: "직원 관리" };
+});
+
 interface Person {
   id: string;
   branch_id: string | null;
@@ -189,11 +199,11 @@ async function onConfirmDeactivate() {
 <template>
   <div class="px-8 py-6 max-w-4xl mx-auto">
     <NuxtLink
-      to="/org"
+      :to="back.to"
       class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4"
     >
       <ArrowLeft class="h-4 w-4" />
-      조직도
+      {{ back.label }}
     </NuxtLink>
 
     <div v-if="error" class="text-sm text-destructive py-12 text-center">
