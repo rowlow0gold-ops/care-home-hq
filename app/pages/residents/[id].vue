@@ -16,6 +16,19 @@ const id = route.params.id as string;
 const api = useApi();
 const toast = useToast();
 
+// Source-aware back link. Callers pass ?from= so we route back to the page
+// the user actually came from. Default = /care since most resident clicks
+// originate from the 케어 관리 어르신 tab.
+const back = computed(() => {
+  const from = String(route.query.from ?? "care");
+  if (from === "care")            return { to: "/care",                              label: "케어 관리" };
+  if (from === "family-notify")   return { to: "/family-notify",                     label: "가족 알림" };
+  if (from.startsWith("event:"))  return { to: `/family-notify/event/${from.slice(6)}`,  label: "이벤트 발송" };
+  if (from.startsWith("month:"))  return { to: `/family-notify/month/${from.slice(6)}`,  label: "월별 발송" };
+  if (from.startsWith("branch:")) return { to: `/branches/${from.slice(7)}`,         label: "지점 상세" };
+  return                                  { to: "/residents",                        label: "어르신 목록" };
+});
+
 interface ResidentContact {
   id: string;
   relation: string;
@@ -254,9 +267,9 @@ const tabs: { id: Tab; label: string; icon: any; count?: () => number }[] = [
 
 <template>
   <div class="px-8 py-6 max-w-7xl mx-auto">
-    <NuxtLink to="/residents" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
+    <NuxtLink :to="back.to" class="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
       <ArrowLeft class="h-4 w-4" />
-      어르신 목록
+      {{ back.label }}
     </NuxtLink>
 
     <div v-if="residentPending" class="text-sm text-muted-foreground">불러오는 중…</div>

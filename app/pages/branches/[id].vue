@@ -392,7 +392,7 @@ const empCounts = computed(() => {
               v-for="r in branchResidents"
               :key="r.id"
               class="px-5 py-2.5 flex items-center gap-3 hover:bg-muted/30 cursor-pointer"
-              @click="navigateTo(`/residents/${r.id}`)"
+              @click="navigateTo(`/residents/${r.id}?from=branch:${route.params.id}`)"
             >
               <div class="h-8 w-8 rounded-full bg-muted text-muted-foreground flex items-center justify-center text-xs font-semibold flex-shrink-0">
                 {{ r.full_name.charAt(0) }}

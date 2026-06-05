@@ -219,7 +219,7 @@ async function sendBatchNow() {
                   {{ r.resident_name.charAt(0) }}
                 </div>
                 <NuxtLink
-                  :to="`/residents/${r.resident_id}`"
+                  :to="`/residents/${r.resident_id}?from=month:${$route.params.yyyymm}`"
                   class="font-medium hover:text-primary hover:underline underline-offset-2"
                   @click.stop
                 >

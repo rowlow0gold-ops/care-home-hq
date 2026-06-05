@@ -234,7 +234,7 @@ async function onExportXlsx() {
           <div class="flex-1 min-w-0">
             <div class="flex items-baseline gap-2 flex-wrap">
               <NuxtLink
-                :to="`/residents/${log.resident_id}`"
+                :to="`/residents/${log.resident_id}?from=care`"
                 class="font-medium text-sm hover:text-primary hover:underline underline-offset-2"
               >
                 {{ log.resident_name }}

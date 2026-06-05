@@ -284,7 +284,7 @@ async function onExportXlsx() {
               v-for="r in paged?.items ?? []"
               :key="r.id"
               class="border-t hover:bg-muted/40 cursor-pointer transition-colors"
-              @click="navigateTo(`/residents/${r.id}`)"
+              @click="navigateTo(`/residents/${r.id}?from=care`)"
             >
               <td class="py-3 px-6 font-medium">{{ r.full_name }}</td>
               <td class="py-3 px-3">

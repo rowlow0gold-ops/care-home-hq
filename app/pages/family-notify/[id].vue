@@ -165,7 +165,7 @@ function monthLabel(m: string) {
         </div>
         <div class="min-w-0 flex-1">
           <NuxtLink
-            :to="`/residents/${picker.resident_id}`"
+            :to="`/residents/${picker.resident_id}?from=family-notify`"
             class="inline-flex items-baseline gap-2 text-2xl font-bold tracking-tight hover:text-primary underline-offset-4 hover:underline"
             title="어르신 상세 페이지"
           >

@@ -255,7 +255,7 @@ function fmtDate(s: string | null) {
             :key="m.id"
             class="border-t hover:bg-muted/40 cursor-pointer transition-colors"
             :class="!m.is_active ? 'opacity-60' : ''"
-            @click="navigateTo(`/residents/${m.resident_id}`)"
+            @click="navigateTo(`/residents/${m.resident_id}?from=care`)"
           >
             <td class="py-3 px-6">
               <div class="font-medium">{{ m.resident_name }}</div>
