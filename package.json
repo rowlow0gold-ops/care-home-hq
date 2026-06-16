@@ -22,7 +22,7 @@
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "@lucide/vue": "^1.16.0",
-    "nuxt": "^4.0.0",
+    "nuxt": "^4.4.7",
     "pinia": "^2.3.0",
     "radix-vue": "^1.9.12",
     "tailwind-merge": "^2.6.0",
